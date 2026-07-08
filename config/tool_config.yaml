@@ -1,0 +1,15 @@
+tools:
+  eqv2:
+    binary: eqv2
+    timeout: 300
+    max_retries: 2
+
+  gaussian:
+    binary: g16
+    timeout: 3600
+    max_retries: 1
+
+  multiwfn:
+    binary: multiwfn
+    timeout: 600
+    max_retries: 2

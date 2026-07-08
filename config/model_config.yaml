@@ -1,0 +1,18 @@
+models:
+  default:
+    name: qwen2.5:72b
+    base_url: http://localhost:11434
+    max_tokens: 4096
+    temperature: 0.1
+
+  planner:
+    name: qwen2.5:72b
+    temperature: 0.0
+
+  critic:
+    name: qwen2.5:14b
+    temperature: 0.1
+
+  embedding:
+    name: text-embedding-3-small
+    dim: 1536
