@@ -1,25 +1,24 @@
-from mcp_client import MCPClient
-from tools.eqv2 import EqV2Tool
-from executor import Executor
-from planner import planner
+from agent.mcp_client import MCPClient
+from agent.executor import Executor
+from agent.planner import Planner
+from agent.state import AgentState
+from llm.client import LLMClient
+
 
 def main():
-    client = MCPClient()
+    llm = LLMClient()
+    mcp = MCPClient()
+    planner = Planner(llm)
+    executor = Executor(mcp)
 
-    tools = {
-        "eqv2": EqV2Tool(client)
-    }
+    state = AgentState(task_id="task-001", user_query="优化一个Ni催化剂结构")
 
-    executor = Executor(tools)
+    state = planner.plan(state)
+    state = executor.execute(state, {"mol": "Ni_cluster"})
 
-    query = "优化一个Ni催化剂结构"
+    print("\n=== FINAL STATE ===")
+    print(state.to_dict())
 
-    plan = planner(query)
-
-    result = executor.execute(plan, {"mol": "Ni_cluster"})
-
-    print("\nFINAL RESULT:")
-    print(result)
 
 if __name__ == "__main__":
     main()
