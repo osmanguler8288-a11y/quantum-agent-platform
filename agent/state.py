@@ -12,21 +12,32 @@ class TaskStatus(str, Enum):
 
 
 class AgentState:
-    def __init__(self, task_id: str):
+    def __init__(self, task_id: str, user_query: str = ""):
         self.task_id = task_id
         self.status = TaskStatus.PENDING
         self.plan: list[dict] = []
         self.current_step = 0
         self.results: list[dict] = []
         self.retry_count = 0
+        self.user_query = user_query
+        self.final_result: str = ""
+
+
 
     def transition(self, new_status: TaskStatus):
+        old = self.status
         self.status = new_status
+        print(f"[state] {old.value} → {new_status.value}")
 
     def to_dict(self) -> dict:
         return {
             "task_id": self.task_id,
+            "user_query": self.user_query,
             "status": self.status.value,
+            "plan": self.plan,
             "current_step": self.current_step,
+            "total_steps": len(self.plan),
+            "results": self.results,
             "retry_count": self.retry_count,
+            "final_result": self.final_result,
         }

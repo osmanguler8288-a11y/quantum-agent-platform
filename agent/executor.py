@@ -1,24 +1,56 @@
+from agent.state import AgentState, TaskStatus
+
+
 class Executor:
-    """遍历 plan，调 MCPClient 执行每个步骤"""
+    """遍历 plan，调用 MCPClient，处理失败重试"""
 
-    def __init__(self, tools: dict):
-        self.tools = tools
+    def __init__(self, mcp_client, max_retries: int = 3):
+        self.mcp = mcp_client
+        self.max_retries = max_retries
 
-    def execute(self, plan: list, input_data: dict = None):
-        results = []
-        for step in plan:
-            tool_name = step.get("step") if isinstance(step, dict) else step
-            action = step.get("action", "") if isinstance(step, dict) else ""
-            params = step.get("params", {}) if isinstance(step, dict) else {}
+    def execute(self, state: AgentState, input_data: dict = None) -> AgentState:
+        """执行整个 plan，返回更新后的 state"""
+        if input_data is None:
+            input_data = {}
 
-            # 合并全局 input_data 和当前步骤的 params
-            if input_data:
-                params = {**input_data, **params}
+        state.transition(TaskStatus.EXECUTING)
 
-            if tool_name in self.tools:
-                result = self.tools[tool_name].call(tool_name, params)
-                print(f"[execute] step={tool_name}, action={action}, result={result}")
-                results.append(result)
-            else:
-                print(f"[execute] tool '{tool_name}' not found, skip")
-        return results
+        for i, step in enumerate(state.plan):
+            state.current_step = i
+
+            tool_name = self._get_tool_name(step)
+            params = self._get_params(step, input_data)
+
+            result = self._execute_with_retry(tool_name, params)
+
+            if result["status"] == "error":
+                state.results.append({"step": i, "error": result["message"]})
+                state.transition(TaskStatus.FAILED)
+                return state
+
+            state.results.append({"step": i, "output": result})
+
+        state.transition(TaskStatus.DONE)
+        return state
+
+    def _execute_with_retry(self, tool_name: str, params: dict) -> dict:
+        """失败自动重试，最多 max_retries 次"""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                result = self.mcp.call(tool_name, params)
+                print(f"[execute] tool={tool_name}, attempt={attempt}, OK")
+                return result
+            except Exception as e:
+                print(f"[execute] tool={tool_name}, attempt={attempt}, FAIL: {e}")
+
+        return {"status": "error", "message": f"重试{self.max_retries}次全部失败"}
+
+    def _get_tool_name(self, step) -> str:
+        if isinstance(step, dict):
+            return step.get("step") or step.get("tool", "unknown")
+        return str(step)
+
+    def _get_params(self, step, input_data: dict) -> dict:
+        if isinstance(step, dict):
+            return {**input_data, **step.get("params", {})}
+        return input_data
