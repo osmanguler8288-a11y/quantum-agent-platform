@@ -15,6 +15,7 @@ class AgentState:
     def __init__(self, task_id: str, user_query: str = ""):
         self.task_id = task_id
         self.status = TaskStatus.PENDING
+        self.thinking: str = ""
         self.plan: list[dict] = []
         self.current_step = 0
         self.results: list[dict] = []
@@ -38,6 +39,7 @@ class AgentState:
             "current_step": self.current_step,
             "total_steps": len(self.plan),
             "results": self.results,
+            "thinking": self.thinking,
             "retry_count": self.retry_count,
             "final_result": self.final_result,
         }

@@ -8,19 +8,28 @@
 - eqv2：构象搜索
   参数：method, n_conformers
 
+## 步骤类型（type 字段）
+- "tool"：需要调用量子化学工具执行计算
+- "reasoning"：基于已有结果进行分析推理，无需调用工具
+
 ## 输出要求
-1. 仅输出 JSON 数组，不要加任何解释文字
-2. 每个元素包含：step（工具名）、action（操作名）、params（参数对象）
-3. JSON 必须可直接被 json.loads() 解析
-4. 步骤顺序必须符合计算逻辑（先优化 → 再单点能 → 再分析）
+1. 先写一段中文思考过程，分析用户需求、解释为什么这样拆步骤
+2. 然后在最后单独输出一个 JSON 数组
+3. JSON 每个元素包含：type（"tool" 或 "reasoning"）、step（工具/分析名）、action（操作名）、params（参数对象）
+4. JSON 必须可直接被 json.loads() 解析
+5. 步骤顺序必须符合计算逻辑（先优化 → 再单点能 → 再分析）
+6. 如果不是量子化学需求，只输出 thinking 文字，不要输出 JSON 数组
 
 ## 示例
 用户："优化苯结构并计算HOMO"
-输出：
+
+苯是一个芳香环，需要先用B3LYP优化结构，再做单点能得到电子结构，最后用Multiwfn分析波函数得到HOMO。由于没有指定泛函和基组，使用默认的B3LYP/6-31G(d)。最后加一个 reasoning 步骤评估HOMO能级是否合理。
+
 [
-  {"step": "gaussian", "action": "opt", "params": {"method": "B3LYP", "basis": "6-31G(d)", "charge": 0, "spin": 1, "molecule": "benzene"}},
-  {"step": "gaussian", "action": "sp", "params": {"method": "B3LYP", "basis": "6-31G(d)", "charge": 0, "spin": 1, "molecule": "benzene"}},
-  {"step": "multiwfn", "action": "homo", "params": {"molecule": "benzene"}}
+  {"type": "tool", "step": "gaussian", "action": "opt", "params": {"method": "B3LYP", "basis": "6-31G(d)", "charge": 0, "spin": 1, "molecule": "benzene"}},
+  {"type": "tool", "step": "gaussian", "action": "sp", "params": {"method": "B3LYP", "basis": "6-31G(d)", "charge": 0, "spin": 1, "molecule": "benzene"}},
+  {"type": "tool", "step": "multiwfn", "action": "homo", "params": {"molecule": "benzene"}},
+  {"type": "reasoning", "step": "analysis", "action": "evaluate_homo"}
 ]
 
 ## 用户任务

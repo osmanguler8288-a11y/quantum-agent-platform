@@ -30,4 +30,4 @@ print(f"状态: {result.get('status')}")
 print(f"执行步骤数: {len(result.get('results', []))}")
 print(f"重试次数: {result.get('retry_count', 0)}")
 for r in result.get("results", []):
-    print(f"  step {r['step_idx']}: {r['result'].get('tool')} → {r['result'].get('status')}")
+    print(f"  step {r['step']}: {r['output'].get('tool')} → {r['output'].get('status')}")

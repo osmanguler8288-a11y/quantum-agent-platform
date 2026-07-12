@@ -1,22 +1,22 @@
+from agent.state import AgentState
+
+
 def make_exec_node(executor):
     def exec_node(state: dict) -> dict:
-        plan = state.get("plan", [])
-        idx = state.get("current_step", 0)
+        ag_state = AgentState(
+            task_id=state.get("task_id", "unknown"),
+            user_query=state.get("user_query", ""),
+        )
+        ag_state.plan = state.get("plan", [])
+        ag_state.current_step = state.get("current_step", 0)
 
-        if idx >= len(plan):
-            return state
+        ag_state = executor.execute(ag_state)
 
-        step = plan[idx]
-        tool_name = step.get("step") or step.get("tool", "unknown")
-        params = step.get("params", {})
+        state["status"] = ag_state.status.value
+        state["results"] = ag_state.results
+        state["current_step"] = ag_state.current_step
+        state["retry_count"] = state.get("retry_count", 0)
 
-        result = executor.mcp.call(tool_name, params)
-
-        results = state.get("results", [])
-        results.append({"step_idx": idx, "step": step, "result": result})
-        state["results"] = results
-        state["last_result"] = result
-
-        print(f"[workflow] exec step={idx}: {tool_name}")
+        print(f"[workflow] exec: {len(ag_state.results)} results, status={ag_state.status.value}")
         return state
     return exec_node
