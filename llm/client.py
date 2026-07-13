@@ -41,3 +41,12 @@ class LLMClient:
             content = delta.content if hasattr(delta, 'content') else delta.get("content")
             if content:
                 yield content
+    def console(self,messages:list[dict])->str:
+        """支持多轮对话，直接传递完整的消息列表"""
+        response = self.client.chat.completions.create(
+            model = self.model,
+            messages = messages,
+            temperature = self.temperature,
+            max_tokens = self.max_tokens
+        )
+        return response.choices[0].message.content

@@ -9,6 +9,7 @@ class Planner:
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
+        self.history:list[dict] = []
 
     def plan(self, state: AgentState) -> AgentState:
         state.transition(TaskStatus.PLANNING)
