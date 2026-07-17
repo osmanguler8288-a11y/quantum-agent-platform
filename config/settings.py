@@ -12,6 +12,8 @@ class Settings:
 
     # Embedding
     EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-small")
+    EMBED_BASE_URL = os.getenv("EMBED_BASE_URL", "https://api.openai.com/v1")
+    EMBED_API_KEY = os.getenv("EMBED_API_KEY", "")
 
     # Redis
     REDIS_HOST = os.getenv("REDIS_HOST", "localhost")

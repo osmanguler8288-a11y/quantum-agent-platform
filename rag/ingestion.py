@@ -10,6 +10,12 @@ def ingest_documents(file_paths: list[str], chunker: Chunker,
         with open(path) as f:
             text = f.read()
         chunks = chunker.chunk(text)
-        embeddings = embedder.embed(chunks)
-        metadata = [{"source": path, "chunk_idx": i} for i in range(len(chunks))]
+        # embed 要 list[str]，Chunker 返回的是 list[dict]，需取出 "text"
+        chunk_texts = [c["text"] for c in chunks]
+        embeddings = embedder.embed(chunk_texts)
+        # metadata 必须带 "text"，否则搜索时拿不到原文
+        metadata = [
+            {"text": chunks[i]["text"], "source": path, "chunk_idx": i}
+            for i in range(len(chunks))
+        ]
         vector_db.insert(embeddings, metadata)
