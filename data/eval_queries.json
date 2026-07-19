@@ -1,0 +1,30 @@
+[
+  {
+    "query": "B3LYP泛函适用于什么体系的计算？",
+    "relevant_keywords": ["有机分子", "结构优化", "能量计算"]
+  },
+  {
+    "query": "过渡金属体系推荐使用什么泛函？",
+    "relevant_keywords": ["PBE0", "wB97XD"]
+  },
+  {
+    "query": "苯的HOMO-LUMO gap是多少？",
+    "relevant_keywords": ["5.7 eV", "苯环"]
+  },
+  {
+    "query": "振动频率计算有哪些关键检查点？",
+    "relevant_keywords": ["无虚频", "过渡态", "势能面"]
+  },
+  {
+    "query": "PCM溶剂模型支持哪些溶剂？",
+    "relevant_keywords": ["水", "乙醇", "乙腈", "DMSO"]
+  },
+  {
+    "query": "6-31G(d)基组的定位是什么？",
+    "relevant_keywords": ["经济实惠", "初步优化"]
+  },
+  {
+    "query": "什么情况下需要添加弥散函数？",
+    "relevant_keywords": ["阴离子", "孤对电子", "6-31+G(d)"]
+  }
+]

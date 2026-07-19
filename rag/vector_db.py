@@ -1,14 +1,17 @@
 from pymilvus import MilvusClient as _MilvusClient
+from config.settings import settings
 
 # BGE-large-zh-v1.5 输出 1024 维
-VECTOR_DIM = 1024
+VECTOR_DIM = settings.EMBED_DIM
 COLLECTION_NAME = "quantum_docs"
 
 
 class MilvusClient:
     """Milvus 向量数据库客户端 — 存向量 + 搜相似（pymilvus 3.0 新 API）"""
 
-    def __init__(self, host: str = "localhost", port: int = 19530):
+    def __init__(self, host: str = None, port: int = None):
+        host = host or settings.MILVUS_HOST
+        port = port or settings.MILVUS_PORT
         uri = f"http://{host}:{port}"
         self.client = _MilvusClient(uri=uri)
 
@@ -29,6 +32,7 @@ class MilvusClient:
             schema_fields=[
                 {"name": "text", "type": "VARCHAR", "max_length": 40000},
                 {"name": "source", "type": "VARCHAR", "max_length": 256},
+                {"name": "chunk_idx", "type": "INT64"},
             ],
         )
         print(f"[milvus] Collection '{COLLECTION_NAME}' 已创建")
@@ -44,6 +48,7 @@ class MilvusClient:
                 "vector": vec,
                 "text": meta.get("text", ""),
                 "source": meta.get("source", ""),
+                "chunk_idx": meta.get("chunk_idx", 0),
             })
 
         self.client.insert(COLLECTION_NAME, rows)
@@ -56,7 +61,7 @@ class MilvusClient:
             collection_name=COLLECTION_NAME,
             data=[vector],
             limit=top_k,
-            output_fields=["text", "source"],
+            output_fields=["text", "source", "chunk_idx"],
         )
 
         hits = results[0]
@@ -64,7 +69,8 @@ class MilvusClient:
             {
                 "text": hit["entity"].get("text"),
                 "source": hit["entity"].get("source"),
-                "score": hit["distance"],  # COSINE 模式下 distance 就是相似度
+                "chunk_idx": hit["entity"].get("chunk_idx"),
+                "score": hit["distance"],
             }
             for hit in hits
         ]

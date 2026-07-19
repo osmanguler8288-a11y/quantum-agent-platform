@@ -11,11 +11,13 @@ class Planner:
         self.llm = llm
         self.history:list[dict] = []
 
-    def plan(self, state: AgentState) -> AgentState:
+    def plan(self, state: AgentState, context: str = "") -> AgentState:
         state.transition(TaskStatus.PLANNING)
 
         prompt = self._load_prompt()
-        filled_prompt = prompt.replace("{task}", state.user_query)
+        filled_prompt = (prompt
+                         .replace("{context}", context)
+                         .replace("{task}", state.user_query))
         raw_response = self.llm.generate(filled_prompt)
 
         state.thinking, state.plan = self._parse_response(raw_response)
@@ -50,10 +52,12 @@ class Planner:
 
         return thinking, []
 
-    def plan_stream(self, state: AgentState):
+    def plan_stream(self, state: AgentState, context: str = ""):
         state.transition(TaskStatus.PLANNING)
         prompt = self._load_prompt()
-        filled_prompt = prompt.replace("{task}", state.user_query)
+        filled_prompt = (prompt
+                         .replace("{context}", context)
+                         .replace("{task}", state.user_query))
 
         full = ""
         json_start = None

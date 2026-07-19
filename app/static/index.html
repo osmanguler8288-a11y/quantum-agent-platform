@@ -170,6 +170,7 @@
   <div class="logo">Q</div>
   <h1>Quantum Agent Platform</h1>
   <span class="badge">Planner → Executor → Critic</span>
+  <span class="badge" id="sessionBadge" style="margin-left:8px;cursor:pointer" title="点击清除会话" onclick="clearSession()">新会话</span>
 </header>
 
 <div class="chat" id="chat"></div>
@@ -188,6 +189,18 @@
 
 <script>
 const chat = document.getElementById('chat');
+
+// ---- 多轮对话：session_id 管理 ----
+let sessionId = localStorage.getItem('qap_session_id') || '';
+let thinkCounter = 0;
+
+function updateSessionBadge() {
+  const el = document.getElementById('sessionBadge');
+  if (el) {
+    el.textContent = sessionId ? '会话: ' + sessionId : '新会话';
+    el.style.color = sessionId ? '#166534' : '#78716C';
+  }
+}
 
 // Initial empty state
 chat.innerHTML = '<div class="empty">'
@@ -305,10 +318,13 @@ async function submitTask() {
   let thinkingP = null;
 
   try {
+    thinkCounter++;
+    const thinkId = 'thinkText-' + thinkCounter;
+
     const resp = await fetch('/api/workflow/stream', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ workflow_id: '', input_data: { user_query: query } })
+      body: JSON.stringify({ input_data: { user_query: query }, session_id: sessionId || null })
     });
 
     const reader = resp.body.getReader();
@@ -338,8 +354,8 @@ async function submitTask() {
 
           case 'thinking_chunk':
             if (!thinkingP) {
-              addAssistantMsg('<p id="thinkText" style="white-space:pre-wrap"></p>', 'THINKING');
-              thinkingP = document.getElementById('thinkText');
+              addAssistantMsg('<p id="' + thinkId + '" style="white-space:pre-wrap"></p>', 'THINKING');
+              thinkingP = document.getElementById(thinkId);
             }
             thinkingP.textContent += event.data;
             break;
@@ -390,6 +406,11 @@ async function submitTask() {
             break;
 
           case 'done':
+            if (event.data && event.data.session_id) {
+              sessionId = event.data.session_id;
+              localStorage.setItem('qap_session_id', sessionId);
+              updateSessionBadge();
+            }
             addAssistantMsg(
               '<span style="color:#22C55E">' + (event.data.status === 'passed' ? 'Task completed.' : 'Reached max retries.') + '</span>',
               'COMPLETE'
@@ -406,6 +427,21 @@ async function submitTask() {
   btn.innerHTML = 'Send';
   chat.scrollTop = chat.scrollHeight;
 }
+
+function clearSession() {
+  if (confirm('清除当前会话？下次提问将开启新对话')) {
+    sessionId = '';
+    localStorage.removeItem('qap_session_id');
+    updateSessionBadge();
+    chat.innerHTML = '<div class="empty">'
+      + '<div class="icon">&#x269B;</div>'
+      + '<div style="font-size:18px;font-weight:600;margin-bottom:8px;">LLM-driven Computational Chemistry Agent</div>'
+      + '<div style="font-size:13px;">会话已清除，开始新对话</div>'
+      + '</div>';
+  }
+}
+
+updateSessionBadge();
 </script>
 </body>
 </html>

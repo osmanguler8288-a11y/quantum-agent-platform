@@ -32,5 +32,8 @@
   {"type": "reasoning", "step": "analysis", "action": "evaluate_homo"}
 ]
 
+## 参考资料（从知识库检索，可能为空）
+{context}
+
 ## 用户任务
 {task}

@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, END
 from workflow.nodes.plan_node import make_plan_node
 from workflow.nodes.exec_node import make_exec_node
 from workflow.nodes.critique_node import make_critique_node
+from workflow.nodes.rag_node import make_rag_node
 
 MAX_RETRIES = 3
 
@@ -24,8 +25,9 @@ def route_after_critic(state: dict) -> str:
     return "exec"
 
 
-def build_workflow(planner, executor, critic):
+def build_workflow(planner, executor, critic, retriever=None):
     # 1. 用工厂函数创建节点
+    rag_node = make_rag_node(retriever) if retriever else None
     plan_node = make_plan_node(planner)
     exec_node = make_exec_node(executor)
     critique_node = make_critique_node(critic)
@@ -33,11 +35,17 @@ def build_workflow(planner, executor, critic):
     # 2. 构建 DAG
     graph = StateGraph(dict)
 
+    if rag_node:
+        graph.add_node("rag", rag_node)
     graph.add_node("plan", plan_node)
     graph.add_node("exec", exec_node)
     graph.add_node("critic", critique_node)
 
-    graph.set_entry_point("plan")
+    if rag_node:
+        graph.set_entry_point("rag")
+        graph.add_edge("rag", "plan")
+    else:
+        graph.set_entry_point("plan")
 
     graph.add_edge("plan", "exec")
     graph.add_edge("exec", "critic")

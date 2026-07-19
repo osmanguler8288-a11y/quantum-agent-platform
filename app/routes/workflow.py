@@ -11,6 +11,10 @@ from agent.critic import Critic
 from agent.mcp_client import MCPClient
 from agent.state import AgentState
 from workflow.graph import build_workflow
+from rag.embedder import Embedder
+from rag.vector_db import MilvusClient
+from rag.retriever import Retriever
+from db.redis_client import RedisClient
 
 router = APIRouter()
 
@@ -20,7 +24,11 @@ mcp = MCPClient()
 planner = Planner(llm)
 executor = Executor(mcp, llm=llm)
 critic = Critic(llm)
-app = build_workflow(planner, executor, critic)
+embedder = Embedder()
+vector_db = MilvusClient()
+retriever = Retriever(embedder, vector_db)
+redis_client = RedisClient()
+app = build_workflow(planner, executor, critic, retriever=retriever)
 
 MAX_RETRIES = 3
 
@@ -28,17 +36,29 @@ MAX_RETRIES = 3
 @router.post("/run")
 async def run_workflow(req: WorkflowRequest):
     task_id = req.workflow_id or str(uuid.uuid4())[:8]
+    session_id = req.session_id or str(uuid.uuid4())[:8]
     user_query = req.input_data.get("user_query", "")
+
+    # 多轮：读历史 + 拼上下文
+    messages = redis_client.get_history(session_id)
+    history_text = format_history(messages)
 
     result = app.invoke({
         "task_id": task_id,
         "user_query": user_query,
         "current_step": 0,
         "retry_count": 0,
+        "history_text": history_text,
     })
+
+    # 多轮：保存历史
+    messages.append({"role": "user", "content": user_query})
+    messages.append({"role": "assistant", "content": result.get("thinking", "")})
+    redis_client.save_history(session_id, messages)
 
     return JSONResponse({
         "task_id": task_id,
+        "session_id": session_id,
         "status": result.get("status", "unknown"),
         "thinking": result.get("thinking", ""),
         "plan": result.get("plan", []),
@@ -53,17 +73,41 @@ def sse(event: dict) -> str:
     return f"data: {json_module.dumps(event, ensure_ascii=False)}\n\n"
 
 
+def format_history(messages: list[dict]) -> str:
+    """把 messages 列表转成纯文本，方便注入 planner prompt"""
+    if not messages:
+        return "（无历史对话）"
+    lines = []
+    for m in messages:
+        role = "用户" if m["role"] == "user" else "助手"
+        lines.append(f"{role}: {m['content']}")
+    return "\n".join(lines)
+
+
 @router.post("/stream")
 async def stream_workflow(req: WorkflowRequest):
     task_id = req.workflow_id or str(uuid.uuid4())[:8]
     user_query = req.input_data.get("user_query", "")
+    session_id = req.session_id or str(uuid.uuid4())[:8]
 
     def event_stream():
         state = AgentState(task_id=task_id, user_query=user_query)
         retry_count = 0
 
+        # ---- 从 Redis 取历史 ----
+        messages = redis_client.get_history(session_id)
+        state.history = messages
+
+        # ---- phase 0: RAG 检索 ----
+        rag_context = retriever.retrieve_as_context(user_query)
+        yield sse({"event": "rag_done", "data": {"context_len": len(rag_context)}})
+
+        # ---- 拼接完整上下文：对话历史 + 参考资料 ----
+        history_text = format_history(messages)
+        full_context = f"## 对话历史\n{history_text}\n\n## 参考资料\n{rag_context}"
+
         # ---- phase 1: planning ----
-        for event in planner.plan_stream(state):
+        for event in planner.plan_stream(state, context=full_context):
             yield sse(event)
 
         # ---- phase 2: execute + critic loop ----
@@ -79,12 +123,20 @@ async def stream_workflow(req: WorkflowRequest):
             yield sse({"event": "verdict_done", "data": verdict})
 
             if verdict.get("passed"):
-                yield sse({"event": "done", "data": {"status": "passed"}})
+                messages.append({"role": "user", "content": user_query})
+                messages.append({"role": "assistant", "content": state.final_result or state.thinking})
+                redis_client.save_history(session_id, messages)
+
+                yield sse({"event": "done", "data": {"status": "passed", "session_id": session_id}})
                 return
 
             retry_count += 1
             if retry_count >= MAX_RETRIES:
-                yield sse({"event": "done", "data": {"status": "max_retries", "retry_count": retry_count}})
+                messages.append({"role": "user", "content": user_query})
+                messages.append({"role": "assistant", "content": state.final_result or state.thinking})
+                redis_client.save_history(session_id, messages)
+
+                yield sse({"event": "done", "data": {"status": "max_retries", "retry_count": retry_count, "session_id": session_id}})
                 return
 
             yield sse({"event": "retry", "data": {"retry_count": retry_count}})

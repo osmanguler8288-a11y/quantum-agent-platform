@@ -13,5 +13,6 @@ class TaskRequest(BaseModel):
 
 
 class WorkflowRequest(BaseModel):
-    workflow_id: str
+    workflow_id: Optional[str] = None
     input_data: dict = {}
+    session_id: Optional[str] = None

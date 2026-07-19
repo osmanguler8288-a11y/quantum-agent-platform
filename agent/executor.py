@@ -70,18 +70,29 @@ class Executor:
         with open("agent/prompts/reasoning_prompt.txt", encoding="utf-8") as f:
             return f.read()
 
+    def _format_history_for_reasoning(self, history: list[dict]) -> str:
+        """把 messages 列表转成纯文本，注入 reasoning prompt"""
+        if not history:
+            return "（无对话历史）"
+        lines = []
+        for m in history:
+            role = "用户" if m["role"] == "user" else "助手"
+            lines.append(f"{role}: {m['content']}")
+        return "\n".join(lines)
+
     def _execute_reasoning(self, step: dict, state: AgentState) -> dict:
-        """调 LLM 做分析推理"""
         if self.llm is None:
             return {"status": "success", "tool": "reasoning",
                     "result": f"跳过分析: {step.get('action', '')}"}
 
         prompt = self._load_reasoning_prompt()
+        history_text = self._format_history_for_reasoning(state.history)
         filled = (
             prompt.replace("{task}", state.user_query)
                   .replace("{action}", step.get("action", ""))
                   .replace("{step_name}", step.get("step", ""))
                   .replace("{results}", str(state.results))
+                  .replace("{history}", history_text)
         )
         try:
             response = self.llm.generate(filled)

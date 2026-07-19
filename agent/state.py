@@ -22,6 +22,7 @@ class AgentState:
         self.retry_count = 0
         self.user_query = user_query
         self.final_result: str = ""
+        self.history: list[dict] = []  # 用于存储对话历史，方便在执行过程中参考
 
 
 
