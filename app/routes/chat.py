@@ -30,6 +30,7 @@ async def chat(req: ChatRequest):
     return ChatResponse(message=reply, session_id=session_id)
 
 
+
 @router.post("/stream")
 async def chat_stream(req: ChatRequest):
     session_id = req.session_id or str(uuid.uuid4())[:8]
