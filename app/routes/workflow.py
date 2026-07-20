@@ -8,7 +8,7 @@ from llm.client import LLMClient
 from agent.planner import Planner
 from agent.executor import Executor
 from agent.critic import Critic
-from agent.mcp_client import MCPClient
+from tools.register_all import build_client
 from agent.state import AgentState
 from workflow.graph import build_workflow
 from rag.embedder import Embedder
@@ -20,7 +20,7 @@ router = APIRouter()
 
 # 启动时初始化一次
 llm = LLMClient()
-mcp = MCPClient()
+mcp = build_client()
 planner = Planner(llm)
 executor = Executor(mcp, llm=llm)
 critic = Critic(llm)
