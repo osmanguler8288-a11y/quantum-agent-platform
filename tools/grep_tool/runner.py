@@ -25,7 +25,7 @@ GAUSSIAN_PATTERNS = {
 }
 
 
-def grep_file(path: str, pattern: str,
+def grep_file(path: str, pattern: str = "",
               context_lines: int = 3,
               max_matches: int = 50,
               preset: str = None,
@@ -35,7 +35,7 @@ def grep_file(path: str, pattern: str,
 
     Args:
         path:          文件路径
-        pattern:       搜索模式（Python 正则）
+        pattern:       搜索模式（Python 正则），使用 preset 时可不传
         context_lines: 每个匹配前后显示的行数
         max_matches:   最多返回多少个匹配
         preset:        预置搜索模式名（如 "energy", "imag_freq"），
@@ -43,11 +43,14 @@ def grep_file(path: str, pattern: str,
         ignore_case:   是否忽略大小写
     """
     # 如果指定了 preset，用预置的 pattern
-    actual_pattern = pattern
     if preset and preset in GAUSSIAN_PATTERNS:
         actual_pattern = GAUSSIAN_PATTERNS[preset]
     elif preset and preset not in GAUSSIAN_PATTERNS:
         return f"[错误] 未知的预置模式: '{preset}'。可用: {list(GAUSSIAN_PATTERNS.keys())}"
+    elif pattern:
+        actual_pattern = pattern
+    else:
+        return "[错误] 请提供 pattern（搜索模式）或 preset（预置模式），二者至少指定一个"
 
     if not os.path.exists(path):
         return f"[错误] 文件不存在: {path}"

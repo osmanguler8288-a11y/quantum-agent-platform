@@ -19,6 +19,7 @@ from tools.gaussian.runner import run_gaussian
 from tools.eqv2.runner import run_eqv2
 from tools.multiwfn.runner import run_multiwfn
 from tools.humo_lumo.runner import run_homo_lumo
+from tools.dip.runner import run_dipole
 
 
 def build_registry() -> ToolRegistry:
@@ -127,7 +128,7 @@ def build_registry() -> ToolRegistry:
                 "preset": {"type": "string", "description": "预设搜索模式: energy, homo_lumo, imag_freq, normal_termination, error_termination, convergence, dipole, thermo"},
                 "ignore_case": {"type": "boolean", "description": "是否忽略大小写，默认 True"},
             },
-            "required": ["path", "pattern"],
+            "required": ["path"],
         },
         func=grep_file,
     )
@@ -188,7 +189,20 @@ def build_registry() -> ToolRegistry:
         },
         func=run_homo_lumo,
     )
-
+    registry.register_function(
+        name="dipole",
+        description="从 Gaussian .out 文件中提取偶极矩（Dipole Moment）及可选的四极矩。用于分析分子电荷分布、极性。参数: out_path(必填,.out文件路径), extract_quadrupole(可选,是否提取四极矩), extract_traceless(可选,是否提取无迹四极矩)",
+        parameters={
+            "type": "object",
+            "properties": {
+                "out_path": {"type": "string", "description": "Gaussian .out 文件路径"},
+                "extract_quadrupole": {"type": "boolean", "description": "是否同时提取四极矩，默认 False"},
+                "extract_traceless": {"type": "boolean", "description": "是否同时提取无迹四极矩，默认 False"},
+            },
+            "required": ["out_path"],
+        },
+        func=run_dipole,
+    )
     return registry
 
 

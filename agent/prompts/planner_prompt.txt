@@ -26,6 +26,8 @@
 - multiwfn: 运行 Multiwfn 波函数分析（HOMO/LUMO/键级/ESP等）。参数: input_file(必填), commands(必填)
 - eqv2: 运行 EqV2 构象搜索。参数: input_file(必填), output_file(必填)
 - homo_lumo: 从 Gaussian .fchk 文件中提取 HOMO/LUMO 轨道能并计算能隙。参数: fchk_path(必填,.fchk文件路径), num_around(可选,默认5)
+- dipole: 从 Gaussian .out 文件中提取偶极矩（Dipole Moment），可选同时提取四极矩和无迹四极矩。参数: out_path(必填,.out文件路径), extract_quadrupole(可选,默认false), extract_traceless(可选,默认false)
+        用于：分析分子极性、电荷分布、多极矩表征
 
 ## 步骤类型（type 字段）
 - "tool"：需要调用工具执行操作
