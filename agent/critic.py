@@ -23,7 +23,7 @@ class Critic:
         return self._parse(raw)
 
     def _load_prompt(self) -> str:
-        with open("agent/prompts/critic_prompt.txt") as f:
+        with open("agent/prompts/critic_prompt.txt", encoding="utf-8") as f:
             return f.read()
 
     def _parse(self, raw: str) -> dict:

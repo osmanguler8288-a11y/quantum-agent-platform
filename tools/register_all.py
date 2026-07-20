@@ -18,6 +18,7 @@ from tools.grep_tool.runner import grep_file
 from tools.gaussian.runner import run_gaussian
 from tools.eqv2.runner import run_eqv2
 from tools.multiwfn.runner import run_multiwfn
+from tools.humo_lumo.runner import run_homo_lumo
 
 
 def build_registry() -> ToolRegistry:
@@ -172,6 +173,20 @@ def build_registry() -> ToolRegistry:
             "required": ["input_file", "commands"],
         },
         func=run_multiwfn,
+    )
+
+    registry.register_function(
+        name="homo_lumo",
+        description="从 Gaussian .fchk 文件中提取 HOMO/LUMO 轨道能量并计算能隙。用于分析分子稳定性、反应活性。参数: fchk_path(必填,.fchk文件路径), num_around(可选,能隙附近显示的轨道数,默认5)",
+        parameters={
+            "type": "object",
+            "properties": {
+                "fchk_path": {"type": "string", "description": "Gaussian .fchk 文件路径"},
+                "num_around": {"type": "integer", "description": "能隙附近显示的轨道数，默认 5"},
+            },
+            "required": ["fchk_path"],
+        },
+        func=run_homo_lumo,
     )
 
     return registry
