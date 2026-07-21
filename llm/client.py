@@ -20,7 +20,7 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url,timeout=15.0)
 
     def generate(self, prompt: str, context: str = "") -> str:
         messages = []

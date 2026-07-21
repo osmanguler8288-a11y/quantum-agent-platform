@@ -1,10 +1,18 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.routes import chat, run_task, workflow, health_check, status
 
 app = FastAPI(title="Quantum Agent Platform")
+
+
+@app.exception_handler(Exception)
+async def global_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": "内部错误，请重试", "detail": str(exc)}
+    )
 
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(run_task.router, prefix="/api/task", tags=["task"])

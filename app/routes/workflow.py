@@ -91,54 +91,59 @@ async def stream_workflow(req: WorkflowRequest):
     session_id = req.session_id or str(uuid.uuid4())[:8]
 
     def event_stream():
-        state = AgentState(task_id=task_id, user_query=user_query)
-        retry_count = 0
+        try:
+            state = AgentState(task_id=task_id, user_query=user_query)
+            retry_count = 0
 
-        # ---- 从 Redis 取历史 ----
-        messages = redis_client.get_history(session_id)
-        state.history = messages
+            # ---- 从 Redis 取历史 ----
+            messages = redis_client.get_history(session_id)
+            state.history = messages
 
-        # ---- phase 0: RAG 检索 ----
-        rag_context = retriever.retrieve_as_context(user_query)
-        yield sse({"event": "rag_done", "data": {"context_len": len(rag_context)}})
+            # ---- phase 0: RAG 检索 ----
+            rag_context = retriever.retrieve_as_context(user_query)
+            yield sse({"event": "rag_done", "data": {"context_len": len(rag_context)}})
 
-        # ---- 拼接完整上下文：对话历史 + 参考资料 ----
-        history_text = format_history(messages)
-        full_context = f"## 对话历史\n{history_text}\n\n## 参考资料\n{rag_context}"
+            # ---- 拼接完整上下文：对话历史 + 参考资料 ----
+            history_text = format_history(messages)
+            full_context = f"## 对话历史\n{history_text}\n\n## 参考资料\n{rag_context}"
 
-        # ---- phase 1: planning ----
-        for event in planner.plan_stream(state, context=full_context):
-            yield sse(event)
-
-        # ---- phase 2: execute + critic loop ----
-        while True:
-            # execute
-            for event in executor.execute_stream(state):
+            # ---- phase 1: planning ----
+            for event in planner.plan_stream(state, context=full_context):
                 yield sse(event)
 
-            # critic
-            step = state.plan[-1] if state.plan else {}
-            result = state.results[-1]["output"] if state.results else {}
-            verdict = critic.review(step=step, result=result, task=user_query)
-            yield sse({"event": "verdict_done", "data": verdict})
+            # ---- phase 2: execute + critic loop ----
+            while True:
+                # execute
+                for event in executor.execute_stream(state):
+                    yield sse(event)
 
-            if verdict.get("passed"):
-                messages.append({"role": "user", "content": user_query})
-                messages.append({"role": "assistant", "content": state.final_result or state.thinking})
-                redis_client.save_history(session_id, messages)
+                # critic
+                step = state.plan[-1] if state.plan else {}
+                result = state.results[-1]["output"] if state.results else {}
+                verdict = critic.review(step=step, result=result, task=user_query)
+                yield sse({"event": "verdict_done", "data": verdict})
 
-                yield sse({"event": "done", "data": {"status": "passed", "session_id": session_id}})
-                return
+                if verdict.get("passed"):
+                    messages.append({"role": "user", "content": user_query})
+                    messages.append({"role": "assistant", "content": state.final_result or state.thinking})
+                    redis_client.save_history(session_id, messages)
 
-            retry_count += 1
-            if retry_count >= MAX_RETRIES:
-                messages.append({"role": "user", "content": user_query})
-                messages.append({"role": "assistant", "content": state.final_result or state.thinking})
-                redis_client.save_history(session_id, messages)
+                    yield sse({"event": "done", "data": {"status": "passed", "session_id": session_id}})
+                    return
 
-                yield sse({"event": "done", "data": {"status": "max_retries", "retry_count": retry_count, "session_id": session_id}})
-                return
+                retry_count += 1
+                if retry_count >= MAX_RETRIES:
+                    messages.append({"role": "user", "content": user_query})
+                    messages.append({"role": "assistant", "content": state.final_result or state.thinking})
+                    redis_client.save_history(session_id, messages)
 
-            yield sse({"event": "retry", "data": {"retry_count": retry_count}})
+                    yield sse({"event": "done", "data": {"status": "max_retries", "retry_count": retry_count, "session_id": session_id}})
+                    return
+
+                yield sse({"event": "retry", "data": {"retry_count": retry_count}})
+
+        except Exception as e:
+            # 友好降级：把异常通过 SSE 告诉前端，而不是直接断连
+            yield sse({"event": "error", "data": {"message": f"服务内部异常，请重试。错误: {str(e)}"}})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
