@@ -1,0 +1,11 @@
+.env
+.git
+.gitignore
+.dockerignore
+__pycache__
+*.pyc
+logs/
+volumes/
+venv/
+.venv/
+*.egg-info
