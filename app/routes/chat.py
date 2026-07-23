@@ -1,7 +1,7 @@
 import json as json_module
 import uuid
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from app.schemas.request import ChatRequest
 from app.schemas.response import ChatResponse
 from llm.client import LLMClient
@@ -39,12 +39,15 @@ async def chat_stream(req: ChatRequest):
 
     def event_stream():
         full_reply = ""
-        for token in llm.console_stream(messages):
-            full_reply += token
-            yield sse("token", token)
-        messages.append({"role": "assistant", "content": full_reply})
-        redis_client.save_history(session_id, messages)
-        yield sse("done", {"session_id": session_id})
+        try:
+            for token in llm.console_stream(messages):
+                full_reply += token
+                yield sse("token", token)
+            messages.append({"role": "assistant", "content": full_reply})
+            redis_client.save_history(session_id, messages)
+            yield sse("done", {"session_id": session_id})
+        except Exception as e:
+            yield sse("error", {"message": f"对话出错: {str(e)}"})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
    

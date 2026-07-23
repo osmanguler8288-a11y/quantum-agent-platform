@@ -100,8 +100,12 @@ async def stream_workflow(req: WorkflowRequest):
             state.history = messages
 
             # ---- phase 0: RAG 检索 ----
-            rag_context = retriever.retrieve_as_context(user_query)
-            yield sse({"event": "rag_done", "data": {"context_len": len(rag_context)}})
+            try:
+                rag_context = retriever.retrieve_as_context(user_query)
+                yield sse({"event": "rag_done", "data": {"context_len": len(rag_context)}})
+            except Exception as e:
+                rag_context = "（RAG 检索不可用，请检查 Milvus 是否启动）"
+                yield sse({"event": "rag_done", "data": {"context_len": len(rag_context), "warning": str(e)}})
 
             # ---- 拼接完整上下文：对话历史 + 参考资料 ----
             history_text = format_history(messages)

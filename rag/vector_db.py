@@ -1,3 +1,4 @@
+import pymilvus
 from pymilvus import MilvusClient as _MilvusClient
 from config.settings import settings
 
@@ -13,14 +14,24 @@ class MilvusClient:
         host = host or settings.MILVUS_HOST
         port = port or settings.MILVUS_PORT
         uri = f"http://{host}:{port}"
-        self.client = _MilvusClient(uri=uri)
 
-        # 如果 collection 不存在就创建
-        if not self.client.has_collection(COLLECTION_NAME):
-            self._create_collection()
+        self._available = False
+        try:
+            self.client = _MilvusClient(uri=uri, timeout=5)
 
-        # 加载到内存
-        self.client.load_collection(COLLECTION_NAME)
+            if not self.client.has_collection(COLLECTION_NAME):
+                self._create_collection()
+
+            self.client.load_collection(COLLECTION_NAME)
+            self._available = True
+            print(f"[milvus] 已连接 {host}:{port}")
+        except (pymilvus.exceptions.MilvusException, ConnectionError, TimeoutError) as e:
+            print(f"[milvus] ⚠️  Milvus 未启动，RAG 检索不可用。启动方式：docker-compose up -d standalone")
+            print(f"[milvus]  原因: {e}")
+
+    @property
+    def available(self) -> bool:
+        return self._available
 
     # ─── 创建表结构 ───
     def _create_collection(self):
@@ -39,7 +50,7 @@ class MilvusClient:
 
     # ─── 写入向量 ───
     def insert(self, vectors: list[list[float]], metadata: list[dict]):
-        if not vectors:
+        if not vectors or not self._available:
             return
 
         rows = []
@@ -56,6 +67,8 @@ class MilvusClient:
 
     # ─── 搜索最相似的向量 ───
     def search(self, vector: list[float], top_k: int = 5) -> list[dict]:
+        if not self._available:
+            return []
 
         results = self.client.search(
             collection_name=COLLECTION_NAME,
