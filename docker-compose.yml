@@ -55,8 +55,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9001:9001"
-      - "9000:9000"
+      - "127.0.0.1:9001:9001"  # 仅本机调试，生产可注释掉
+      - "127.0.0.1:9000:9000"
     volumes:
       - ./volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -87,8 +87,8 @@ services:
       timeout: 20s
       retries: 3
     ports:
-      - "19530:19530"   # gRPC — pymilvus 通过此端口连接
-      - "9091:9091"     # 健康检查
+      - "127.0.0.1:19530:19530"  # gRPC — 仅本机调试，生产可注释掉
+      - "127.0.0.1:9091:9091"    # 健康检查
     depends_on:
       - "etcd"
       - "minio"
