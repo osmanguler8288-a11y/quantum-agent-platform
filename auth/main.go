@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -260,6 +261,10 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 }
 
 func main() {
+	// 加载 .env 文件（如果存在），命令行环境变量优先级更高
+	_ = godotenv.Load("../.env")
+	_ = godotenv.Load(".env")
+
 	jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 	if len(jwtSecret) == 0 {
 		jwtSecret = []byte("change-me-in-production-use-a-long-random-string")
