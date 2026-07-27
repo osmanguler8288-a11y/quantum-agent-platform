@@ -1,6 +1,6 @@
 # Quantum Agent Platform
 
-LLM 驱动的量子化学自主 Agent 平台。通过 **LangGraph 工作流**编排量子化学工具（Gaussian、Multiwfn、EqV2），集成 **RAG 知识检索**、**SSE 流式反馈**、**多轮对话记忆**和**自动重试机制**。
+LLM 驱动的量子化学自主 Agent 平台。通过 **LangGraph 工作流**编排量子化学工具（Gaussian、Multiwfn、EqV2），集成 **RAG 知识检索**、**SSE 流式反馈**、**多轮对话记忆**、**Go 认证网关（登录/注册 + JWT）**和**自动重试机制**。
 
 ---
 
@@ -8,8 +8,7 @@ LLM 驱动的量子化学自主 Agent 平台。通过 **LangGraph 工作流**编
 
 ### 前置条件
 
-- **Docker & Docker Compose**（运行 Redis + Milvus）
-- **Python 3.11+**（开发模式）或仅 Docker（部署模式）
+- **Docker & Docker Compose**
 - **LLM API Key**（DeepSeek / OpenAI 兼容接口）
 
 ### 3 分钟跑起来
@@ -23,21 +22,26 @@ cp .env.example .env
 vim .env   # 填 LLM_API_KEY 和 EMBED_API_KEY
 
 # 3. 启动全部服务
-docker-compose up -d
+docker compose up -d
 
-# 4. 打开浏览器
+# 4. 打开浏览器 → 注册账号 → 登录 → 使用
 # → http://localhost:8000
 ```
 
-Docker Compose 会一键启动：App + Redis + Milvus + etcd + MinIO。首次启动拉取镜像需要几分钟，之后秒启。
+Docker Compose 会一键启动：Auth 网关 + App + MySQL + Redis + Milvus + etcd + MinIO。首次构建 Go 镜像需要几分钟，之后秒启。
 
-### 开发模式（推荐）
-
-改代码不想反复 build 镜像，可以只把基础设施放 Docker，app 手动跑：
+### 开发模式
 
 ```bash
-# 启动 Redis + Milvus（自动带上 etcd 和 minio）
-docker-compose up -d redis standalone
+# 只起基础设施
+docker compose up -d redis standalone mysql
+
+# 手动跑 FastAPI
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 & 
+
+# 手动跑 Go 认证服务
+cd auth && go run . &
+```
 
 # 手动启动 FastAPI（--reload 热重载）
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -48,25 +52,34 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ## 整体架构
 
 ```
+用户浏览器 → Go 认证网关 → FastAPI → LangGraph → LLM / Tools
+              │    :8080      :8000
+              ├── /api/auth/register  (公开)
+              ├── /api/auth/login     (公开)
+              └── /api/*              (需 JWT，验证后转发)
+              │
+          MySQL :3306
+        (用户表：id, username, password_hash, email)
+```
+
+```
 用户浏览器                                         后端服务（Docker Compose）
 ─────────                                         ─────────────────────────
 
-┌──────────┐    POST /api/workflow/stream     ┌──────────────────────┐
-│ 前端 SPA │ ─────────────────────────────────→│  FastAPI (qap-app)   │
-│          │◄── SSE 流式事件 ─────────────────│  :8000               │
-└──────────┘    event: thinking_chunk          │                      │
-                event: step_start              │  LangGraph DAG:      │
-                event: done                    │  RAG → Plan →        │
+┌──────────┐    POST /api/*   Authorization: Bearer <JWT>
+│ 前端 SPA │ ──→ Go Auth (:8000) ──→ FastAPI (qap-app)
+│          │◄── SSE 流式事件 ─────────────────│
+└──────────┘                                   │  LangGraph DAG:      │
+                                               │  RAG → Plan →        │
                                                │  Execute → Critic    │
                                                └──────┬───────────────┘
                                                       │
-                    ┌────────────┬────────────────────┼────────────┬────────────┐
-                    │            │                    │            │            │
-               ┌────▼────┐ ┌────▼────┐         ┌─────▼─────┐ ┌────▼────┐ ┌────▼────┐
-               │  Redis  │ │ Milvus  │         │ DeepSeek  │ │SiliconFlow│ │ 外部工具 │
-               │  :6379  │ │ :19530  │         │   LLM     │ │ Embedding │ │ Gaussian │
-               │ 会话记忆 │ │ 向量检索 │         └───────────┘ └──────────┘ │ Multiwfn │
-               └─────────┘ └─────────┘                                     └─────────┘
+            ┌──────────┬──────────┬──────────────────┼──────────┬──────────┐
+            │          │          │                  │          │          │
+       ┌────▼────┐┌────▼────┐┌────▼────┐      ┌─────▼─────┐┌────▼────┐┌────▼────┐
+       │  MySQL  ││  Redis  ││ Milvus  │      │ DeepSeek  ││SiliconFlow││ 外部工具 │
+       │  用户表  ││ 会话记忆 ││ 向量检索 │      │   LLM     ││ Embedding ││ Gaussian │
+       └─────────┘└─────────┘└─────────┘      └───────────┘└──────────┘└─────────┘
 ```
 
 ### 工作流四阶段
@@ -132,8 +145,12 @@ quantum-agent-platform/
 ├── db/redis_client.py          # Redis 会话存储
 ├── config/settings.py          # 环境变量配置
 
-├── Dockerfile                  # App 镜像
-├── docker-compose.yml          # 全栈编排（app + redis + milvus + etcd + minio）
+├── auth/                       # Go 认证网关
+│   ├── main.go                 # 登录/注册 + JWT + 反向代理
+│   ├── Dockerfile              # 多阶段构建
+│   └── go.mod
+├── Dockerfile                  # Python App 镜像
+├── docker-compose.yml          # 全栈编排（auth + app + mysql + redis + milvus）
 ├── .dockerignore
 ├── .env.example                # 环境变量模板（无密钥）
 ├── requirements.txt

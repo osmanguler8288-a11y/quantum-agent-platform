@@ -115,6 +115,14 @@ async def stream_workflow(req: WorkflowRequest):
             for event in planner.plan_stream(state, context=full_context):
                 yield sse(event)
 
+            # 空计划（闲聊、纯知识问答）：跳过执行+评审，直接结束
+            if not state.plan:
+                messages.append({"role": "user", "content": user_query})
+                messages.append({"role": "assistant", "content": state.thinking})
+                redis_client.save_history(session_id, messages)
+                yield sse({"event": "done", "data": {"status": "passed", "session_id": session_id}})
+                return
+
             # ---- phase 2: execute + critic loop ----
             while True:
                 # execute

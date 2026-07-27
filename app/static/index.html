@@ -162,15 +162,66 @@
   /* Message enter animation */
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .msg { animation: fadeIn 0.3s ease-out; }
+
+  /* Auth overlay */
+  .auth-overlay {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; align-items: center; justify-content: center; z-index: 1000;
+  }
+  .auth-overlay.hidden { display: none; }
+  .auth-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px 36px; width: 380px; max-width: 90vw; box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+  }
+  .auth-card h2 { font-size: 22px; margin-bottom: 6px; }
+  .auth-card .sub { color: var(--text-secondary); font-size: 13px; margin-bottom: 24px; }
+  .auth-card input {
+    width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+    font-size: 14px; margin-bottom: 12px; outline: none; background: #FAFAF9;
+    transition: border-color 0.15s;
+  }
+  .auth-card input:focus { border-color: var(--orange); }
+  .auth-card button {
+    width: 100%; padding: 12px; border: none; border-radius: 10px;
+    background: var(--orange); color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer; margin-top: 4px;
+  }
+  .auth-card button:hover { background: var(--orange-hover); }
+  .auth-card .switch {
+    text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-secondary);
+  }
+  .auth-card .switch a { color: var(--orange); cursor: pointer; text-decoration: none; font-weight: 600; }
+  .auth-card .error { color: #EF4444; font-size: 12px; margin-bottom: 8px; }
+  .logout-btn { cursor: pointer; color: var(--orange); font-weight: 600; font-size: 13px; }
 </style>
 </head>
 <body>
+
+<!-- ─── 登录/注册页面 ─── -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <h2 id="authTitle">登录</h2>
+    <div class="sub" id="authSub">登录后使用 Quantum Agent Platform</div>
+    <div class="error" id="authError" style="display:none"></div>
+    <form onsubmit="handleAuth();return false">
+      <input id="authUsername" type="text" placeholder="用户名" autocomplete="username">
+      <input id="authEmail" type="email" placeholder="邮箱（注册时需要）" autocomplete="email" style="display:none;">
+      <input id="authPassword" type="password" placeholder="密码" autocomplete="current-password">
+      <button id="authBtn" type="submit">登录</button>
+    </form>
+    <div class="switch">
+      <span id="switchText">还没有账号？</span>
+      <a id="switchLink" onclick="toggleAuthMode()">立即注册</a>
+    </div>
+  </div>
+</div>
 
 <header>
   <div class="logo">Q</div>
   <h1>Quantum Agent Platform</h1>
   <span class="badge">Planner → Executor → Critic</span>
   <span class="badge" id="sessionBadge" style="margin-left:8px;cursor:pointer" title="点击清除会话" onclick="clearSession()">新会话</span>
+  <span class="badge logout-btn" id="logoutBtn" onclick="logout()" style="display:none">退出</span>
 </header>
 
 <div class="chat" id="chat"></div>
@@ -188,6 +239,116 @@
 </div>
 
 <script>
+// ─── 认证状态 ───
+let authToken = localStorage.getItem('qap_token') || '';
+let isRegisterMode = false;
+
+function showAuth() {
+  document.getElementById('authOverlay').classList.remove('hidden');
+  document.getElementById('logoutBtn').style.display = 'none';
+}
+
+function hideAuth() {
+  document.getElementById('authOverlay').classList.add('hidden');
+  document.getElementById('logoutBtn').style.display = '';
+}
+
+function toggleAuthMode() {
+  isRegisterMode = !isRegisterMode;
+  document.getElementById('authTitle').textContent = isRegisterMode ? '注册' : '登录';
+  document.getElementById('authSub').textContent = isRegisterMode ? '创建账号以使用平台' : '登录后使用 Quantum Agent Platform';
+  document.getElementById('authEmail').style.display = isRegisterMode ? '' : 'none';
+  document.getElementById('authBtn').textContent = isRegisterMode ? '注册' : '登录';
+  document.getElementById('switchText').textContent = isRegisterMode ? '已有账号？' : '还没有账号？';
+  document.getElementById('switchLink').textContent = isRegisterMode ? '去登录' : '立即注册';
+  document.getElementById('authError').style.display = 'none';
+}
+
+async function handleAuth() {
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const email = document.getElementById('authEmail').value.trim();
+  const errEl = document.getElementById('authError');
+  const btn = document.getElementById('authBtn');
+
+  if (!username || !password) {
+    errEl.textContent = '请填写用户名和密码';
+    errEl.style.display = '';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>' + (isRegisterMode ? '注册中...' : '登录中...');
+  errEl.style.display = 'none';
+
+  const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
+  const body = isRegisterMode ? { username, password, email } : { username, password };
+
+  let resp;
+  try {
+    resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch (e) {
+    errEl.textContent = '无法连接到服务器，请确认服务已启动';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.innerHTML = isRegisterMode ? '注册' : '登录';
+    return;
+  }
+
+  let data;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    errEl.textContent = '服务器返回异常，请重试';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.innerHTML = isRegisterMode ? '注册' : '登录';
+    return;
+  }
+
+  if (!resp.ok) {
+    errEl.textContent = data.error || '请求失败 (' + resp.status + ')';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.innerHTML = isRegisterMode ? '注册' : '登录';
+    return;
+  }
+
+  authToken = data.token;
+  localStorage.setItem('qap_token', authToken);
+  localStorage.setItem('qap_user', JSON.stringify(data.user));
+  btn.disabled = false;
+  btn.innerHTML = isRegisterMode ? '注册' : '登录';
+  hideAuth();
+}
+
+function logout() {
+  authToken = '';
+  localStorage.removeItem('qap_token');
+  localStorage.removeItem('qap_user');
+  document.getElementById('authUsername').value = '';
+  document.getElementById('authPassword').value = '';
+  document.getElementById('authEmail').value = '';
+  document.getElementById('authError').style.display = 'none';
+  showAuth();
+}
+
+// 页面加载时检查登录状态
+if (authToken) { hideAuth(); } else { showAuth(); }
+
+// ─── 给所有 API 请求加上 JWT ───
+function authFetch(url, options = {}) {
+  options.headers = options.headers || {};
+  if (authToken) {
+    options.headers['Authorization'] = 'Bearer ' + authToken;
+  }
+  return fetch(url, options);
+}
+
 const chat = document.getElementById('chat');
 
 // ---- 多轮对话：session_id 管理 ----
@@ -321,11 +482,26 @@ async function submitTask() {
     thinkCounter++;
     const thinkId = 'thinkText-' + thinkCounter;
 
-    const resp = await fetch('/api/workflow/stream', {
+    const resp = await authFetch('/api/workflow/stream', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ input_data: { user_query: query }, session_id: sessionId || null })
     });
+
+    if (!resp.ok) {
+      let errMsg = '请求失败 (' + resp.status + ')';
+      try {
+        const errData = await resp.json();
+        errMsg = errData.error || errMsg;
+      } catch (_) {}
+      addAssistantMsg('<span style="color:#EF4444">' + escapeHtml(errMsg) + '</span>', 'ERROR');
+      if (resp.status === 401) {
+        logout();
+      }
+      btn.disabled = false;
+      btn.innerHTML = 'Send';
+      return;
+    }
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -351,6 +527,11 @@ async function submitTask() {
         console.log('[SSE]', event.event, event.data);
 
         switch (event.event) {
+
+          case 'rag_done':
+            // RAG 检索完成，静默记录
+            console.log('[SSE] RAG context loaded, length:', event.data?.context_len);
+            break;
 
           case 'thinking_chunk':
             if (!thinkingP) {
@@ -415,6 +596,17 @@ async function submitTask() {
               '<span style="color:#22C55E">' + (event.data.status === 'passed' ? 'Task completed.' : 'Reached max retries.') + '</span>',
               'COMPLETE'
             );
+            break;
+
+          case 'error':
+            addAssistantMsg(
+              '<span style="color:#EF4444">服务异常: ' + escapeHtml(event.data?.message || '未知错误') + '</span>',
+              'ERROR'
+            );
+            break;
+
+          default:
+            console.log('[SSE] unhandled event:', event.event, event.data);
             break;
         }
       }
