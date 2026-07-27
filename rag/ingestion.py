@@ -1,4 +1,5 @@
 from PyPDF2 import PdfReader
+from docx import Document as DocxDocument
 from rag.chunker import Chunker
 from rag.embedder import Embedder
 from rag.vector_db import MilvusClient
@@ -15,10 +16,22 @@ def extract_pdf_text(path: str) -> str:
     return "\n".join(pages)
 
 
+def extract_docx_text(path: str) -> str:
+    """从 Word 文档提取纯文本"""
+    doc = DocxDocument(path)
+    paragraphs = []
+    for para in doc.paragraphs:
+        if para.text.strip():
+            paragraphs.append(para.text)
+    return "\n".join(paragraphs)
+
+
 def read_file(path: str) -> str:
-    """根据后缀读文件：PDF / TXT"""
+    """根据后缀读文件：PDF / DOCX / TXT"""
     if path.lower().endswith(".pdf"):
         return extract_pdf_text(path)
+    elif path.lower().endswith(".docx"):
+        return extract_docx_text(path)
     else:
         with open(path, encoding="utf-8") as f:
             return f.read()

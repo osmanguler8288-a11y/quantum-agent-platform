@@ -8,6 +8,16 @@ from workflow.nodes.rag_node import make_rag_node
 MAX_RETRIES = 3
 
 
+def route_after_plan(state: dict) -> str:
+    """plan 为空时（纯知识问答）直接结束，跳过执行"""
+    plan = state.get("plan", [])
+    if not plan:
+        print(f"[route] plan empty → END")
+        return "end"
+    print(f"[route] plan has {len(plan)} steps → exec")
+    return "exec"
+
+
 def route_after_critic(state: dict) -> str:
     """根据 critic 的 verdict 决定下一步"""
     verdict = state.get("verdict", {})
@@ -47,7 +57,14 @@ def build_workflow(planner, executor, critic, retriever=None):
     else:
         graph.set_entry_point("plan")
 
-    graph.add_edge("plan", "exec")
+    graph.add_conditional_edges(
+        "plan",
+        route_after_plan,
+        {
+            "exec": "exec",
+            "end": END,
+        },
+    )
     graph.add_edge("exec", "critic")
 
     graph.add_conditional_edges(
