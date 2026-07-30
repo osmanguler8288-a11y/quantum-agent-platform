@@ -58,7 +58,7 @@ type ErrorResponse struct {
 func initDB() {
 	dsn := os.Getenv("MYSQL_DSN")
 	if dsn == "" {
-		dsn = "root:quantum123@tcp(localhost:3306)/quantum_auth?parseTime=true"
+		dsn = "root:111111@tcp(localhost:3306)/quantum_auth?parseTime=true"
 	}
 
 	var err error
