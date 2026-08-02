@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 logs/
+
+# Docker 卷（运行时数据，不进 git）
+volumes/

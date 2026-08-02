@@ -10,7 +10,8 @@ LLM 驱动的量子化学自主 Agent 平台。LangGraph 编排 RAG → 规划 �
 git clone <repo-url> && cd quantum-agent-platform
 cp .env.example .env          # 填入 LLM_API_KEY 和 EMBED_API_KEY
 docker compose up -d          # 一键启动全部服务
-# 浏览器打开 http://localhost:8000 → 注册 → 登录 → 使用
+# 浏览器打开 http://localhost:8080 → 注册 → 登录 → 使用
+# 注意：必须访问 :8080（Go 网关），:8000 是内部 FastAPI，无认证路由
 ```
 
 **前置条件**：Docker & Docker Compose、一个 LLM API Key（OpenAI 兼容接口）。
