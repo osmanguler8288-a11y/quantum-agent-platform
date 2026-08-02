@@ -26,7 +26,7 @@ class MilvusClient:
             self._available = True
             print(f"[milvus] 已连接 {host}:{port}")
         except (pymilvus.exceptions.MilvusException, ConnectionError, TimeoutError) as e:
-            print(f"[milvus] ⚠️  Milvus 未启动，RAG 检索不可用。启动方式：docker-compose up -d standalone")
+            print(f"[milvus] [WARN] Milvus 未启动，RAG 检索不可用。启动方式：docker-compose up -d standalone")
             print(f"[milvus]  原因: {e}")
 
     @property

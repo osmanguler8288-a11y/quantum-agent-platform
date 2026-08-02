@@ -443,11 +443,17 @@ function renderVerdict(v) {
   if (!v || Object.keys(v).length === 0) return '<span style="color:#A8A29E">Waiting for review</span>';
   const passed = v.passed;
   let html = '<div class="verdict ' + (passed ? 'pass' : 'fail') + '">';
+  // 完整结果呈现 + 解读（自然语言部分）
+  if (v.comment) {
+    html += '<div class="v-comment" style="white-space:pre-wrap;margin-bottom:8px">' + escapeHtml(v.comment) + '</div>';
+  }
   html += '<div class="v-header">'
     + '<span class="icon">' + (passed ? '&#x2705;' : '&#x26A0;') + '</span>'
     + (passed ? 'PASS — 结果验证通过' : 'FAIL — 结果验证未通过')
     + '</div>';
-  html += '<div class="v-reason">' + escapeHtml(v.reason || '') + '</div>';
+  if (v.reason) {
+    html += '<div class="v-reason">' + escapeHtml(v.reason) + '</div>';
+  }
   if (v.suggestions) {
     html += '<div class="v-suggest">Suggestion: ' + escapeHtml(v.suggestions) + '</div>';
   }
