@@ -3,6 +3,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.routes import chat, run_task, workflow, health_check, status
+from memory.scheduler import start_memory_scheduler
+from llm.client import LLMClient
 
 app = FastAPI(title="Quantum Agent Platform")
 
@@ -22,6 +24,16 @@ app.include_router(status.router, prefix="/api/status", tags=["status"])
 
 # 静态文件
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.on_event("startup")
+def _start_background_tasks():
+    """启动后台记忆清理任务（每天 1 次）"""
+    try:
+        llm = LLMClient()
+        start_memory_scheduler(llm, interval_seconds=86400)
+    except Exception as e:
+        print(f"[startup] 启动记忆调度器失败: {e}")
 
 
 @app.get("/")

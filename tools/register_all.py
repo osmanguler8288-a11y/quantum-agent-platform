@@ -7,6 +7,9 @@
     result = mcp_client.call("bash", {"command": "echo hello"})
 """
 
+import threading
+from typing import Optional
+
 from tools.tool_register import ToolRegistry
 from agent.mcp_client import MCPClient
 
@@ -20,6 +23,40 @@ from tools.eqv2.runner import run_eqv2
 from tools.multiwfn.runner import run_multiwfn
 from tools.humo_lumo.runner import run_homo_lumo
 from tools.dip.runner import run_dipole
+
+from memory.tool import MemoryTool
+
+
+# ─── 当前请求的 user_id（thread-local，由 web 层注入）──────
+_current_user_state = threading.local()
+
+
+def set_current_user(user_id: str, llm=None):
+    """web 层在每个请求开始时调用，注入当前用户 ID"""
+    _current_user_state.user_id = user_id
+    _current_user_state.llm = llm
+    # 每次切换用户时重置 MemoryTool 实例缓存
+    _current_user_state.memory_tool = None
+
+
+def get_current_user() -> str:
+    return getattr(_current_user_state, "user_id", "default_user")
+
+
+def get_current_llm():
+    return getattr(_current_user_state, "llm", None)
+
+
+def get_memory_tool() -> MemoryTool:
+    """获取当前用户的 MemoryTool（按 user 隔离）"""
+    if not hasattr(_current_user_state, "memory_tool") or _current_user_state.memory_tool is None:
+        user_id = get_current_user()
+        print(f"[memory-tool] 创建新 MemoryTool (user_id={user_id})")
+        _current_user_state.memory_tool = MemoryTool(
+            user_id=user_id,
+            llm=get_current_llm(),
+        )
+    return _current_user_state.memory_tool
 
 
 def build_registry() -> ToolRegistry:
@@ -203,6 +240,86 @@ def build_registry() -> ToolRegistry:
         },
         func=run_dipole,
     )
+
+    # ── 长期记忆工具 ──────────────────────────────
+    registry.register_function(
+        name="memory_add",
+        description="添加一条长期记忆。支持类型: working(短期)/episodic(情景)/semantic(语义知识)。importance 不传时由 LLM 自评（0~1）。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "记忆内容文本"},
+                "memory_type": {"type": "string", "description": "记忆类型: working/episodic/semantic"},
+                "importance": {"type": "number", "description": "重要性 0.0~1.0，不传则由 LLM 自评"},
+            },
+            "required": ["content", "memory_type"],
+        },
+        func=lambda content, memory_type="working", importance=None, **meta:
+            get_memory_tool().add(content, memory_type, importance, **meta),
+    )
+
+    registry.register_function(
+        name="memory_search",
+        description="搜索用户的历史记忆（按语义相似度）。可指定类型过滤。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索查询文本"},
+                "limit": {"type": "integer", "description": "最大返回条数，默认 5"},
+                "memory_type": {"type": "string", "description": "限定类型: working/episodic/semantic"},
+                "min_importance": {"type": "number", "description": "最低重要性阈值，默认 0.1"},
+            },
+            "required": ["query"],
+        },
+        func=lambda query, limit=5, memory_type=None, min_importance=0.1:
+            get_memory_tool().search(query, limit, memory_type=memory_type, min_importance=min_importance),
+    )
+
+    registry.register_function(
+        name="memory_consolidate",
+        description="把重要的短期/情景记忆整合为语义知识。例如把多条 working 记忆归纳成一条 semantic。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "from_type": {"type": "string", "description": "来源类型，默认 working"},
+                "to_type": {"type": "string", "description": "目标类型，默认 semantic"},
+                "importance_threshold": {"type": "number", "description": "重要性阈值，默认 0.7"},
+            },
+            "required": [],
+        },
+        func=lambda from_type="working", to_type="semantic", importance_threshold=0.7:
+            get_memory_tool().consolidate(from_type, to_type, importance_threshold),
+    )
+
+    registry.register_function(
+        name="memory_forget",
+        description="按策略遗忘记忆。策略: importance_based(低重要性)/age_based(老旧)/combined(组合)。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "strategy": {"type": "string", "description": "遗忘策略: importance_based/age_based/combined"},
+                "threshold": {"type": "number", "description": "重要性阈值，默认 0.1"},
+                "max_age_days": {"type": "integer", "description": "最大保留天数，默认 30"},
+            },
+            "required": [],
+        },
+        func=lambda strategy="importance_based", threshold=0.1, max_age_days=30:
+            get_memory_tool().forget(strategy, threshold, max_age_days),
+    )
+
+    registry.register_function(
+        name="memory_history",
+        description="列出当前用户的所有历史记忆（按时间排序）。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "top_k": {"type": "integer", "description": "返回条数，默认 20"},
+            },
+            "required": [],
+        },
+        func=lambda top_k=20: get_memory_tool().history(top_k),
+    )
+
     return registry
 
 

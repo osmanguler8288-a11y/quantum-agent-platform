@@ -5,3 +5,12 @@ logs/
 
 # Docker 卷（运行时数据，不进 git）
 volumes/
+
+# Gaussian / 量化计算测试残留
+*.gjf
+*.log
+*.chk
+*.fchk
+*.out
+*.wfn
+*.wfx

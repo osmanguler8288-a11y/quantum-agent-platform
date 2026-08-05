@@ -6,8 +6,11 @@ def make_plan_node(planner):
         query = state.get("user_query", "unknow")
 
         rag_context = state.get("context", "")
+        memory_context = state.get("memory_context", "")
         history_text = state.get("history_text", "")
         parts = []
+        if memory_context:
+            parts.append(f"## 历史记忆\n{memory_context}")
         if history_text:
             parts.append(f"## 对话历史\n{history_text}")
         if rag_context:
