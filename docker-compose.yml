@@ -55,6 +55,7 @@ services:
       MYSQL_DSN: root:quantum123@tcp(mysql:3306)/quantum_auth?parseTime=true
       JWT_SECRET: change-me-in-production-use-a-long-random-string
       BACKEND_URL: http://app:8000
+      SKIP_AUTH: "false"
     depends_on:
       mysql:
         condition: service_healthy

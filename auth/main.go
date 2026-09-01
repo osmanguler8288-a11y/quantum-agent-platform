@@ -22,6 +22,7 @@ var (
 	db        *sql.DB
 	jwtSecret []byte
 	backend   *httputil.ReverseProxy
+	skipAuth  bool
 )
 
 // ─── 数据模型 ───
@@ -178,6 +179,31 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, AuthResponse{Token: token, User: user})
 }
 
+// ─── 游客登录 ───
+
+func handleGuest(w http.ResponseWriter, r *http.Request) {
+	token, err := generateGuestToken()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{"生成游客令牌失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, AuthResponse{
+		Token: token,
+		User:  User{ID: 0, Username: "guest"},
+	})
+}
+
+func generateGuestToken() (string, error) {
+	claims := jwt.MapClaims{
+		"user_id":  0,
+		"username": "guest",
+		"exp":      time.Now().Add(30 * 24 * time.Hour).Unix(),
+		"iat":      time.Now().Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
+}
+
 // ─── JWT ───
 
 func generateToken(userID int, username string) (string, error) {
@@ -204,6 +230,14 @@ func validateToken(tokenStr string) (jwt.MapClaims, error) {
 // ─── 反向代理到 FastAPI ───
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
+	if skipAuth {
+		// 跳过 SSO：注入固定本地用户，便于下游按用户隔离记忆/会话
+		r.Header.Set("X-User-ID", "1")
+		r.Header.Set("X-Username", "local_dev")
+		backend.ServeHTTP(w, r)
+		return
+	}
+
 	// 添加用户信息到 header 传给 Python
 	tokenStr := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if claims, err := validateToken(tokenStr); err == nil {
@@ -235,14 +269,19 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 	case "/api/auth/login":
 		handleLogin(w, r)
 		return
+	case "/api/auth/guest":
+		handleGuest(w, r)
+		return
 	}
 
-	// 其余 /api/* 需要登录
+	// 其余 /api/* 需要登录（SKIP_AUTH=true 时跳过校验）
 	if strings.HasPrefix(path, "/api/") {
-		tokenStr := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if _, err := validateToken(tokenStr); err != nil {
-			writeJSON(w, http.StatusUnauthorized, ErrorResponse{"请先登录"})
-			return
+		if !skipAuth {
+			tokenStr := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if _, err := validateToken(tokenStr); err != nil {
+				writeJSON(w, http.StatusUnauthorized, ErrorResponse{"请先登录"})
+				return
+			}
 		}
 		proxyHandler(w, r)
 		return
@@ -253,6 +292,20 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── 辅助函数 ───
+
+func getEnvBool(key string, def bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	switch strings.ToLower(v) {
+	case "true", "1", "yes", "on":
+		return true
+	case "false", "0", "no", "off":
+		return false
+	}
+	return def
+}
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -268,6 +321,12 @@ func main() {
 	jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 	if len(jwtSecret) == 0 {
 		jwtSecret = []byte("change-me-in-production-use-a-long-random-string")
+	}
+
+	// 本地开发默认跳过 SSO 认证；生产环境显式设置 SKIP_AUTH=false
+	skipAuth = getEnvBool("SKIP_AUTH", true)
+	if skipAuth {
+		log.Println("[auth] SKIP_AUTH=true，本地开发模式：跳过 SSO 认证，使用固定用户 local_dev")
 	}
 
 	initDB()

@@ -35,7 +35,7 @@ class LLMClient:
             max_tokens=self.max_tokens,
         )
         return response.choices[0].message.content
-    
+   
     def generate_stream(self,prompt:str):
         """chunk 每个 token"""
         response = self.client.chat.completions.create(
