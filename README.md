@@ -2,37 +2,52 @@
 
 LLM 驱动的量子化学自主 Agent 平台。LangGraph 编排 **记忆检索 → RAG → 规划 → 执行 → 评审** 五阶段工作流，集成量子化学工具链、SSE 流式反馈、双层记忆系统（Redis 短期对话 + Milvus 长期记忆）与 Go 认证网关。
 
+**前后端分离**：`frontend/`（Vue 3 + Vite）负责交互界面，`backend/`（FastAPI + LangGraph）负责 Agent 编排与工具执行。
+
 ---
 
 ## 快速开始
 
+### 一键启动（Docker Compose）
+
 ```bash
 git clone <repo-url> && cd quantum-agent-platform
+cd backend
 cp .env.example .env          # 填入 LLM_API_KEY 和 EMBED_API_KEY
-docker compose up -d          # 一键启动全部服务
+docker compose up -d          # 启动 mysql / redis / app / auth / milvus 等全部服务
 # 浏览器打开 http://localhost:8080 → 注册 → 登录 → 使用
 # 注意：必须访问 :8080（Go 网关），:8000 是内部 FastAPI，无认证路由
 ```
 
 **前置条件**：Docker & Docker Compose、一个 LLM API Key（OpenAI 兼容接口）。
 
-开发模式（只起基础设施，手动跑应用）：
+### 本地开发（前后端分离）
 
 ```bash
-docker compose up -d redis standalone mysql
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-cd auth && go run .
+# 后端（backend/ 目录下运行）
+cd backend
+cp .env.example .env
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+
+# 前端（frontend/ 目录下运行）
+cd ../frontend
+npm install
+npm run dev                   # Vite 开发服务器，默认 http://localhost:5173
 ```
+
+开发模式下前端走 mock 数据（`VITE_USE_MOCK=true`）；联调真实后端时设 `VITE_USE_MOCK=false` 并指向后端地址。
 
 ---
 
 ## 架构
 
 ```
-浏览器 ──→ Go 认证网关 (:8080) ──→ FastAPI (:8000) ──→ LangGraph 工作流
-            /api/auth/*  公开          /api/*  需 JWT
-            JWT 注入 X-User-ID                │
-                                              ↓
+浏览器 ──→ Vue 3 前端 (:8000 静态 / :5173 dev) ──→ Go 认证网关 (:8080) ──→ FastAPI (:8001)
+                     /api/auth/*  公开                          /api/*  需 JWT
+                     JWT 注入 X-User-ID                              │
+                                                                    ↓
             ┌─────────┬──────────┬──────────┬──────────┬──────────┐
           MySQL    Redis      Milvus       LLM      Embedding   量化工具
           用户表   短期对话    长期记忆+RAG                      Gaussian 等
@@ -106,18 +121,29 @@ cd auth && go run .
 
 ```
 quantum-agent-platform/
-├── app/            # FastAPI 应用（路由、SSE、前端页面）
-├── agent/          # Agent 核心（planner / executor / critic / mcp_client）
-├── tools/          # 17 个内置工具（12 量化 + 5 记忆管理）
-├── rag/            # RAG 检索（embedder / vector_db / retriever）
-├── workflow/       # LangGraph DAG 编排（memory / rag / plan / exec / critic）
-├── llm/            # LLM 调用封装（OpenAI 兼容，支持流式）
-├── db/             # Redis 会话存储
-├── memory/         # 长期记忆模块（MemoryManager / MilvusStore / 4 种记忆类型 / Scheduler）
-├── auth/           # Go 认证网关（登录/注册 + JWT + 反向代理）
-├── config/         # 环境变量配置
-├── docker-compose.yml
-└── .env.example
+├── backend/               # 后端（FastAPI + LangGraph + Agent 核心）
+│   ├── app/               # FastAPI 应用（main / routes / schemas / utils）
+│   │   └── utils/logger.py  # loguru 统一日志（request_id / trace_id / 脱敏）
+│   ├── agent/             # Agent 核心（planner / executor / critic / mcp_client）
+│   ├── tools/             # 内置工具（量化 + 记忆管理）
+│   ├── rag/               # RAG 检索（embedder / vector_db / retriever）
+│   ├── workflow/          # LangGraph DAG 编排（memory / rag / plan / exec / critic）
+│   ├── llm/               # LLM 调用封装（OpenAI 兼容，支持流式）
+│   ├── llmops/            # LLM Ops（评估 / 监控）
+│   ├── db/                # Redis 会话存储
+│   ├── memory/            # 长期记忆模块（MemoryManager / MilvusStore / Scheduler）
+│   ├── auth/              # Go 认证网关（登录/注册 + JWT + 反向代理）
+│   ├── config/            # 环境变量配置
+│   ├── requirements.txt   # Python 依赖
+│   └── docker-compose.yml # 基础设施编排（mysql / redis / app / auth / milvus）
+├── frontend/              # 前端（Vue 3 + Vite + Pinia + Vue Router）
+│   ├── src/               # 源码（views / components / stores / api / router）
+│   ├── serve.py           # 生产静态服务（http.server SPA，端口 8000）
+│   ├── package.json
+│   └── vite.config.ts
+├── doc/                   # 项目文档与教程（lesson-01 ~ lesson-10）
+├── deploy.sh              # 部署脚本（前后端分离，SSH 推送到服务器）
+└── README.md
 ```
 
 ---
@@ -134,15 +160,16 @@ quantum-agent-platform/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/` | Web 前端 |
-| `POST` | `/api/workflow/stream` | Agent 工作流 — SSE 流式 |
+| `POST` | `/api/chat/` | 纯 LLM 对话 — 一次性返回 |
+| `POST` | `/api/chat/stream` | 纯 LLM 对话 — SSE 流式 |
+| `POST` | `/api/task/` | 单任务执行 |
 | `POST` | `/api/workflow/run` | Agent 工作流 — 一次性返回 |
+| `POST` | `/api/workflow/stream` | Agent 工作流 — SSE 流式 |
+| `GET` | `/api/workflow/history` | 查看当前用户长期记忆 |
 | `POST` | `/api/workflow/memory/consolidate` | 手动触发记忆整合 |
 | `POST` | `/api/workflow/memory/forget` | 手动触发遗忘机制 |
-| `GET` | `/api/workflow/history` | 查看当前用户长期记忆 |
-| `POST` | `/api/chat/stream` | 纯 LLM 对话 — SSE 流式 |
-| `POST` | `/api/chat/` | 纯 LLM 对话 — 一次性返回 |
 | `GET` | `/api/health/server` | 健康检查 |
+| `GET` | `/api/status/ping` | 状态探测 |
 
 SSE 事件：`memory_done` `rag_done` `thinking_chunk` `plan_done` `step_start` `step_done` `verdict_done` `retry` `done` `error`
 
@@ -150,7 +177,7 @@ SSE 事件：`memory_done` `rag_done` `thinking_chunk` `plan_done` `step_start` 
 
 ## 配置
 
-通过 `.env` 配置（见 `.env.example`）：
+通过 `backend/.env` 配置（见 `backend/.env.example`）：
 
 | 变量 | 说明 |
 |------|------|
@@ -158,17 +185,42 @@ SSE 事件：`memory_done` `rag_done` `thinking_chunk` `plan_done` `step_start` 
 | `EMBED_MODEL` / `EMBED_BASE_URL` / `EMBED_API_KEY` | Embedding 模型与 API（RAG 与记忆检索需要） |
 | `MYSQL_DSN` | Go 认证服务连接 MySQL（Docker 部署不用改） |
 | `JWT_SECRET` | JWT 签名密钥（生产环境请换成随机长字符串） |
+| `SKIP_AUTH` | 本地开发跳过 SSO 认证（`true` 使用固定用户 `local_dev`；生产务必 `false`） |
 | `BACKEND_URL` | Go 网关转发目标（Docker 内自动用 `http://app:8000`） |
-| `REDIS_HOST` / `MILVUS_HOST` | Docker 内自动改为服务名 |
-| `MAX_RETRIES` / `MAX_STEPS` / `TOP_K` | 重试轮数 / 最大步骤数 / RAG 返回条数 |
+| `REDIS_HOST` / `REDIS_PORT` | Redis 连接（Docker 内自动改为服务名） |
+| `MILVUS_HOST` / `MILVUS_PORT` | Milvus 连接（Docker 内自动改为服务名） |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` / `TOP_K` | RAG 分块与返回条数 |
+| `MAX_RETRIES` / `MAX_STEPS` | 重试轮数 / 最大步骤数 |
+
+---
+
+## 部署
+
+生产环境部署**必须通过 `deploy.sh`**，脚本内置根目录校验、SSH 密码注入、远端路径护栏与健康检查。
+
+```bash
+cd <项目根目录>
+DEPLOY_PASSWORD='<服务器密码>' ./deploy.sh   # 密码经环境变量临时注入，用完即删
+```
+
+**拓扑**：前端 `frontend/dist` → `http.server` SPA（端口 8000，systemd `qap-frontend`）；后端 `backend/` → `uvicorn app.main:app`（端口 8001，systemd `qap-backend`）。
+
+常用变量覆盖：
+
+| 变量 | 说明 |
+|------|------|
+| `DEPLOY_HOST` | 目标服务器（默认 `120.55.84.80`） |
+| `FRONTEND_PORT` / `BACKEND_PORT` | 前后端端口（默认 8000 / 8001） |
+| `SKIP_BACKEND=1` | 只部署前端（后端依赖未就绪时） |
+| `VITE_USE_MOCK=false` | 前端切真实后端联调 |
 
 ---
 
 ## 添加工具
 
-1. 写 `tools/<工具名>/runner.py`，定义纯函数（返回字符串）
-2. 在 `tools/register_all.py` 注册：`registry.register_function(name, desc, schema, func)`
-3. 需要时在 `agent/prompts/planner_prompt.txt` 补充用法说明
+1. 写 `backend/tools/<工具名>/runner.py`，定义纯函数（返回字符串）
+2. 在 `backend/tools/register_all.py` 注册：`registry.register_function(name, desc, schema, func)`
+3. 需要时在 `backend/agent/prompts/planner_prompt.txt` 补充用法说明
 
 ```python
 def run_your_tool(required_param: str, optional_param: bool = False) -> str:
@@ -186,7 +238,7 @@ def run_your_tool(required_param: str, optional_param: bool = False) -> str:
 
 ## 技术栈
 
-FastAPI + SSE · LangGraph · Milvus · Redis · Docker Compose · Go 认证网关 · 原生前端 · DeepSeek LLM
+FastAPI + SSE · LangGraph · Milvus · Redis · Docker Compose · Go 认证网关 · Vue 3 + Vite + Pinia · loguru · DeepSeek LLM
 
 ---
 
