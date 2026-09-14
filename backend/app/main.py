@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.middleware.request_context import RequestContextMiddleware
-from app.routes import chat, run_task, workflow, health_check, status, tools
+from app.routes import chat, run_task, workflow, health_check, status, tools, conversations
 from app.utils.logger import logger, log_dir
 from memory.scheduler import start_memory_scheduler
 from llm.client import LLMClient
@@ -61,6 +61,7 @@ app.include_router(workflow.router, prefix="/api/workflow", tags=["workflow"])
 app.include_router(health_check.router, prefix="/api/health", tags=["health"])
 app.include_router(status.router, prefix="/api/status", tags=["status"])
 app.include_router(tools.router, prefix="/api/tools", tags=["tools"])
+app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 
 # 静态文件
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

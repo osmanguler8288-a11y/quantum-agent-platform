@@ -11,7 +11,7 @@
        TEXT 可直接字符串排序且人类可读。
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = """
 -- ============================================================
@@ -144,6 +144,70 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version    INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
 );
+
+-- ============================================================
+-- 会话主表（v2 新增）
+--
+-- ⚠️ id 用 TEXT 且**值就是 workflow 的 session_id** —— 一个实体只允许一个标识符。
+--    若另开一个自增 INTEGER id，同一段对话就有两个 id，语义必然漂移
+--    （同 user_id 那个坑：网关发数字、前端发用户名）。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS conversation (
+    id            TEXT    PRIMARY KEY,
+
+    -- 归属。来源是 X-User-ID（网关注入的数字 ID），不是用户名
+    user_id       TEXT    NOT NULL,
+
+    title         TEXT    NOT NULL DEFAULT '',   -- 空标题由首条提问兜底，见 repo.touch_on_append
+    model         TEXT    NOT NULL DEFAULT 'default',
+    system_prompt TEXT,
+
+    -- status / pinned / deleted_at 三者正交（沿用 tool 表已验证的模型）：
+    --   归档可逆、删除不可见于任何列表、置顶只是排序权重
+    status        TEXT    NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active', 'completed', 'archived')),
+    pinned        INTEGER NOT NULL DEFAULT 0,
+    deleted_at    TEXT,
+
+    -- 列表页冗余列：避免每一行都去子查询 message 表（N+1）
+    snippet       TEXT    NOT NULL DEFAULT '',
+    message_count INTEGER NOT NULL DEFAULT 0,
+    tool_calls    INTEGER NOT NULL DEFAULT 0,
+
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conv_user_updated
+    ON conversation(user_id, updated_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_conv_user_status
+    ON conversation(user_id, status, deleted_at);
+
+-- ============================================================
+-- 消息表（v2 新增）—— 只追加，永不 UPDATE / DELETE
+--
+-- ⚠️ 外键**不带 ON DELETE CASCADE**：会话是软删（deleted_at），消息要保留，
+--    这是将来做「恢复」的前提。查询侧靠 conversation.deleted_at IS NULL 过滤。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS conversation_message (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT    NOT NULL REFERENCES conversation(id),
+
+    seq             INTEGER NOT NULL,            -- 会话内递增序号，从 1 开始
+    role            TEXT    NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT    NOT NULL DEFAULT '',
+
+    status          TEXT    NOT NULL DEFAULT 'ok'
+                            CHECK (status IN ('ok', 'error', 'interrupted')),
+    token_count     INTEGER NOT NULL DEFAULT 0,
+
+    created_at      TEXT    NOT NULL
+);
+
+-- ⚠️ 唯一约束是并发安全的**兜底**：并发写同一会话时它会失败并触发重试，
+--    而不是像 Redis 那套「读全量→改→写全量」一样静默覆盖丢消息。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_conv_seq
+    ON conversation_message(conversation_id, seq);
 """
 
 

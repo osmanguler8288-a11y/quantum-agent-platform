@@ -96,8 +96,20 @@ export type SSEEvent =
   | { event: 'memory_done'; data: { count: number } }
   | { event: 'rag_done'; data: { context_len: number } }
   | { event: 'result_viz'; data: VizResult }
-  | { event: 'done'; data: { status: string; session_id?: string } }
-  | { event: 'error'; data: { message: string } }
+  // 会话已就绪（planning 之前发出）。conversation_id 可能与请求里带的不一样 ——
+  // 客户端传了一个不存在、或属于别人的 id 时，后端会换一个新的（见方案 §3.1 B4）
+  | { event: 'conversation_ready'; data: { conversation_id: string } }
+  | {
+      event: 'done'
+      data: {
+        status: string
+        /** @deprecated 与 conversation_id 同值，仅为兼容保留；新代码用 conversation_id */
+        session_id?: string
+        conversation_id?: string
+        message_count?: number
+      }
+    }
+  | { event: 'error'; data: { message: string; conversation_id?: string } }
 
 // ─── 记忆 ───
 export type MemoryType = 'working' | 'episodic' | 'semantic' | 'perceptual'

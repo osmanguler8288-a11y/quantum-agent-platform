@@ -19,7 +19,12 @@ export type ConvStatus = 'active' | 'completed' | 'archived'
 export type ConvTab = 'all' | 'active' | 'archived'
 
 export interface ConvSummary {
-  id: number
+  /**
+   * ⚠️ 是 string 不是 number —— 与后端的 `conversation.id` 一致。
+   *    后端用 TEXT 主键，值就是 workflow 的 session_id（一个实体只有一个标识符）。
+   *    见 doc/对话落库-实施方案.md §2.2 决策一。
+   */
+  id: string
   title: string
   status: ConvStatus
   model: string
@@ -37,6 +42,19 @@ export interface ConvMessage {
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  /** 'error' = 那一轮报错了、'interrupted' = 用户中途断连（服务端 finally 补写的） */
+  status?: 'ok' | 'error' | 'interrupted'
+  /** 会话内递增序号，从 1 开始 */
+  seq?: number
+}
+
+export interface ConvMessagePage {
+  items: ConvMessage[]
+  total: number
+  page: number
+  page_size: number
+  /** 还有更早的消息没取 */
+  has_more: boolean
 }
 
 /** 详情接口在列表字段之上补充的只读信息 */
@@ -112,24 +130,36 @@ export async function fetchConversations(params: ConvListParams = {}): Promise<C
   return apiGet<ConvListResponse>(`/api/conversations${qs ? '?' + qs : ''}`)
 }
 
-export async function fetchConversation(id: number): Promise<ConvDetail> {
+export async function fetchConversation(id: string): Promise<ConvDetail> {
   return apiGet<ConvDetail>(`/api/conversations/${id}`)
+}
+
+/** 会话消息（聊天页回填历史用）。page=1 是**最新**的一页，返回按时间升序。 */
+export async function fetchConversationMessages(
+  id: string,
+  params: { page?: number; page_size?: number } = {},
+): Promise<ConvMessagePage> {
+  const q = new URLSearchParams()
+  if (params.page) q.set('page', String(params.page))
+  if (params.page_size) q.set('page_size', String(params.page_size))
+  const qs = q.toString()
+  return apiGet<ConvMessagePage>(`/api/conversations/${id}/messages${qs ? '?' + qs : ''}`)
 }
 
 export async function createConversation(payload: ConvCreatePayload): Promise<ConvDetail> {
   return apiPost<ConvDetail>('/api/conversations', payload)
 }
 
-export async function updateConversation(id: number, payload: ConvUpdatePayload): Promise<ConvSummary> {
+export async function updateConversation(id: string, payload: ConvUpdatePayload): Promise<ConvSummary> {
   return apiPut<ConvSummary>(`/api/conversations/${id}`, payload)
 }
 
-export async function setConversationFlags(id: number, flags: ConvFlagsPayload): Promise<ConvSummary> {
+export async function setConversationFlags(id: string, flags: ConvFlagsPayload): Promise<ConvSummary> {
   return apiPatch<ConvSummary>(`/api/conversations/${id}/flags`, flags)
 }
 
-export async function deleteConversation(id: number): Promise<{ id: number }> {
-  return apiDelete<{ id: number }>(`/api/conversations/${id}`)
+export async function deleteConversation(id: string): Promise<{ id: string }> {
+  return apiDelete<{ id: string }>(`/api/conversations/${id}`)
 }
 
 // ─── 展示辅助 ────────────────────────────────────────

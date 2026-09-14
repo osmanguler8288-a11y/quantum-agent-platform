@@ -15,12 +15,15 @@ export function authHeaders(headers: Record<string, string> = {}): Record<string
   if (auth.token) {
     headers['Authorization'] = 'Bearer ' + auth.token
   }
-  // ⚠️ X-User-ID 是后端识别用户的来源（工具库用它做审计日志的 operator）。
-  //    生产环境由 Go 网关校验 JWT 后注入，这里在前端补上是为了联调期能区分用户。
-  //    它是**可伪造的** —— 当前后端不做鉴权，仅用于留痕。
-  if (auth.user?.username) {
-    headers['X-User-ID'] = auth.user.username
-  }
+  // ⚠️ 这里**不发 X-User-ID**，尽管后端就是靠它识别用户的。
+  //
+  //    原因：网关注入的是 JWT 里的**数字 user_id**，而前端手上只有**用户名**。
+  //    两个都塞进同一个 header，谁赢取决于有没有经过网关 —— 一旦两者混进同一张
+  //    表（比如 conversation.user_id），就会出现「A 的会话归到 B 名下」。
+  //    所以身份只保留一条路径：浏览器 → 网关 → 注入 X-User-ID → FastAPI。
+  //
+  //    代价：**FastAPI(:8001) 绝不能对外暴露**，直连时它拿不到任何身份信息，
+  //    所有请求都会退化成 default_user。见 doc/对话落库-实施方案.md §3.1 B1/B2。
   return headers
 }
 

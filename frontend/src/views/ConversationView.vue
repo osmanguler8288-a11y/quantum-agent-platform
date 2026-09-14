@@ -291,9 +291,8 @@ function onCreated(conv: ConvDetail) {
 
 /** 后端暂无 /api/conversations 路由（404）→ 以本地新对话进入聊天页，不报错 */
 function onCreateLocal() {
-  conversation.newConversation()
-  session.clear()
-  chat.clear()
+  // startNew 一次性做全：清消息 + 解绑 sessionId + 取消侧边栏选中
+  chat.startNew()
   router.push({ name: 'chat' })
 }
 
@@ -326,7 +325,7 @@ function onSaved(conv: ConvSummary) {
 
 // ─── 详情 ────────────────────────────────────────────
 const detailVisible = ref(false)
-const detailId = ref<number | null>(null)
+const detailId = ref<string | null>(null)
 
 function openDetail(conv: ConvSummary) {
   detailId.value = conv.id
@@ -338,12 +337,12 @@ function askRemoveFromDetail(conv: ConvDetail) {
   askRemove(conv)
 }
 
-// ─── 继续对话：桥接回聊天页（会话 store 用字符串 id）───
-function openInChat(c: { id: number; title: string; updated_at: string }) {
-  const sid = conversation.upsert(c)
-  conversation.switchTo(sid)
-  session.setSession(sid)
-  chat.loadConversation(sid, c.title)
+// ─── 继续对话：桥接回聊天页 ───
+function openInChat(c: { id: string; title: string; updated_at: string }) {
+  conversation.upsert(c)
+  // loadConversation 会**真实拉取**这段会话的消息，并一并绑定
+  // session.sessionId（下一句接在这里）与侧边栏选中态
+  chat.loadConversation(c.id)
   router.push({ name: 'chat' })
 }
 

@@ -16,7 +16,7 @@ from workflow.graph import build_workflow
 from rag.embedder import Embedder
 from rag.vector_db import MilvusClient
 from rag.retriever import Retriever
-from db.redis_client import RedisClient, NullRedis
+from db.conversation_repo import get_conversation_repo
 from app.utils.context import start_invocation
 from tools.instrumented_client import InstrumentedMCPClient
 
@@ -50,8 +50,6 @@ critic = Critic(llm)
 embedder = _safe("Embedder", Embedder)
 vector_db = _safe("MilvusClient", MilvusClient)
 retriever = Retriever(embedder, vector_db) if (embedder and vector_db) else None
-# Redis 用空对象兜底：下面多处**直接**调用它，为 None 会 AttributeError 打断对话链路
-redis_client = _safe("RedisClient", RedisClient, fallback=NullRedis())
 
 
 def _get_memory_tool_for_user(user_id: str):
@@ -75,15 +73,71 @@ def _inject_user(request: Request):
     return user_id
 
 
+# ─────────────────────────────────────────────────────────────
+# 会话落库（唯一入口）
+#
+# 三条不可动摇的规则，对应方案 §3.2 的边界条件：
+#   1. 落库必须发生在**发 done/error 事件之前**。反过来的话前端收到事件就刷新
+#      列表，会查不到刚写的这条 —— 竞态，且只在慢磁盘上偶发，极难复现（B7）。
+#   2. 落库失败**绝不能**打断对话。用户该拿到的回答一个字都不能少，
+#      只是这一轮没持久化（B14）。这与 Redis 时代的降级语义一致。
+#   3. 客户端断连时生成器被 close()，抛的是 GeneratorExit（BaseException），
+#      `except Exception` 抓不到，只能走 finally 补写（B11）。
+#      而 finally 正常路径也会执行，所以必须用 persisted 标志防重（B12）。
+# ─────────────────────────────────────────────────────────────
+def _ensure_conversation(session_id: str | None, user_id: str) -> tuple[str, bool]:
+    """取或建会话，返回 (conversation_id, 是否可落库)。
+
+    DB 不可用时返回一个临时 id 并标记不可落库 —— 对话照常跑，只是不持久化（B41）。
+    """
+    try:
+        return get_conversation_repo().get_or_create(session_id, user_id)["id"], True
+    except Exception:
+        logger.opt(exception=True).warning(
+            "[workflow] 会话存储不可用，本轮对话不落库 session={}", session_id
+        )
+        return (session_id or str(uuid.uuid4())[:8]), False
+
+
+def _load_history(conversation_id: str, user_id: str, persisted: bool) -> list[dict]:
+    """读历史消息。读失败按「无历史」处理 —— 不能因为读不到历史就不让用户提问。"""
+    if not persisted:
+        return []
+    return get_conversation_repo().get_full_history(conversation_id, user_id)
+
+
+def _persist_turn(conversation_id: str, user_query: str, reply: str,
+                  status: str = "ok", tool_calls: int = 0) -> int:
+    """把一轮问答落库，返回实际写入条数（失败返回 0）。**绝不抛异常**（B14）。"""
+    try:
+        n = get_conversation_repo().append_messages(
+            conversation_id,
+            [
+                {"role": "user", "content": user_query},
+                # 空的回复由 repo 跳过（B15），不会留下空气泡
+                {"role": "assistant", "content": reply, "status": status},
+            ],
+            tool_calls=tool_calls,
+        )
+        logger.info("[workflow] 落库 conv={} 条数={} status={}", conversation_id, n, status)
+        return n
+    except Exception:
+        logger.opt(exception=True).warning(
+            "[workflow] 落库失败，本轮未持久化 conv={} status={}", conversation_id, status
+        )
+        return 0
+
+
 @router.post("/run")
 async def run_workflow(req: WorkflowRequest, request: Request):
     user_id = _inject_user(request)
     task_id = req.workflow_id or str(uuid.uuid4())[:8]
-    session_id = req.session_id or str(uuid.uuid4())[:8]
     user_query = req.input_data.get("user_query", "")
 
+    conversation_id, persisted = _ensure_conversation(req.session_id, user_id)
+
     # 多轮：读历史 + 拼上下文
-    messages = redis_client.get_history(session_id)
+    messages = _load_history(conversation_id, user_id, persisted)
     history_text = format_history(messages)
 
     result = app.invoke({
@@ -95,27 +149,30 @@ async def run_workflow(req: WorkflowRequest, request: Request):
         "history_text": history_text,
     })
 
-    # 多轮：保存历史
-    messages.append({"role": "user", "content": user_query})
-    messages.append({"role": "assistant", "content": result.get("thinking", "")})
-    redis_client.save_history(session_id, messages)
+    # 多轮：落库（在返回响应之前，保证客户端拿到 session_id 时数据已可见）
+    if persisted:
+        _persist_turn(conversation_id, user_query, result.get("thinking", ""),
+                      tool_calls=len(result.get("results", []) or []))
 
     # 自动存为情景记忆
     try:
         mem_tool = _get_memory_tool_for_user(str(user_id))
-        mem_tool.set_session(session_id)
+        mem_tool.set_session(conversation_id)
         mem_tool.memory_manager.add_memory(
             content=f"用户: {user_query}\n助手: {result.get('thinking', '')[:500]}",
             memory_type="episodic",
             importance=0.6,
-            session_id=session_id,
+            session_id=conversation_id,
         )
     except Exception as e:
         logger.bind(task_id=task_id).warning("[memory] 自动存记忆失败: {}", e)
 
     return JSONResponse({
         "task_id": task_id,
-        "session_id": session_id,
+        # ⚠️ 新 id 可能与我们收到的不一样（客户端传了别人的/不存在的 id 时会换新，
+        #    见 conversation_repo.get_or_create），所以必须回传实际使用的那个（B4）
+        "session_id": conversation_id,
+        "conversation_id": conversation_id,
         "status": result.get("status", "unknown"),
         "thinking": result.get("thinking", ""),
         "plan": result.get("plan", []),
@@ -146,13 +203,17 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
     user_id = _inject_user(request)
     task_id = req.workflow_id or str(uuid.uuid4())[:8]
     user_query = req.input_data.get("user_query", "")
-    session_id = req.session_id or str(uuid.uuid4())[:8]
+
+    # ⚠️ 在**端点体**取会话：客户端传来的 id 可能不存在、甚至属于别人，
+    #    get_or_create 会换一个新 id 回来（见 conversation_repo）。之后
+    #    所有地方一律用 conversation_id，不再用 req.session_id。
+    conversation_id, persisted = _ensure_conversation(req.session_id, user_id)
 
     # ⚠️ 必须在**端点体**创建（不能放进生成器体内）：这是工具调用埋点能拿到
     #    user/session/task 上下文的唯一时机 —— 生成器跑在线程池，体内 set 的
     #    ContextVar 在下一个 yield 后即失效。详见 app/utils/context.py。
     start_invocation(
-        user_id=str(user_id), session_id=session_id,
+        user_id=str(user_id), session_id=conversation_id,
         task_id=task_id, task_title=user_query[:50],
     )
 
@@ -167,17 +228,37 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
         state = None
         retry_count = 0
         outcome = "aborted"          # 客户端中途断连时保持此值
+        # ⚠️ 落库标志必须装在**可变容器**里：finally 与各正常出口都要读写它，
+        #    Python 闭包对不可变类型的赋值只作用于内层作用域。
+        turn = {"persisted": False, "count": 0}
+
+        def persist(reply: str, status: str, tool_calls: int = 0) -> None:
+            """落库本轮问答（幂等）。**只能在发 done/error 之前调用** —— 见 B7。"""
+            if turn["persisted"]:
+                return
+            turn["persisted"] = True
+            if not persisted:
+                return
+            n = _persist_turn(conversation_id, user_query, reply, status, tool_calls)
+            if n:
+                turn["count"] += n
 
         try:
             state = AgentState(task_id=task_id, user_query=user_query)
 
+            # 让前端尽早拿到真实 id —— 可能与它传来的一致，也可能被换过（B4）。
+            # 用户在流式过程中刷新页面时，靠它找回这段对话。
+            yield sse({"event": "conversation_ready",
+                       "data": {"conversation_id": conversation_id}})
+
             # ---- 为本请求创建专属 MemoryTool（user_id 隔离，避免 thread-local 异步污染）----
             mem_tool = _get_memory_tool_for_user(str(user_id))
-            mem_tool.set_session(session_id)
+            mem_tool.set_session(conversation_id)
 
-            # ---- 从 Redis 取历史 ----
-            messages = redis_client.get_history(session_id)
+            # ---- 取历史（替代原来的 Redis get_history）----
+            messages = _load_history(conversation_id, user_id, persisted)
             state.history = messages
+            turn["count"] = len(messages)
 
             # ---- phase -1: 长期记忆检索（user_id 隔离）----
             memory_context = ""
@@ -226,12 +307,16 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
 
             # 空计划（闲聊、纯知识问答）：跳过执行+评审，直接结束
             if not state.plan:
-                messages.append({"role": "user", "content": user_query})
-                messages.append({"role": "assistant", "content": state.thinking})
-                redis_client.save_history(session_id, messages)
-                _save_episodic_memory(mem_tool, user_query, state.thinking, session_id)
+                # ⚠️ persist 必须在 yield done **之前**（B7）：
+                #    反过来的话前端收到 done 就刷新列表，会查不到刚写的这条
+                persist(state.thinking, "ok")
+                _save_episodic_memory(mem_tool, user_query, state.thinking, conversation_id)
                 outcome = "passed_empty_plan"
-                yield sse({"event": "done", "data": {"status": "passed", "session_id": session_id}})
+                yield sse({"event": "done", "data": {
+                    "status": "passed",
+                    "session_id": conversation_id, "conversation_id": conversation_id,
+                    "message_count": turn["count"],
+                }})
                 return
 
             # ---- phase 2: execute + critic loop ----
@@ -247,24 +332,32 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
                 yield sse({"event": "verdict_done", "data": verdict})
 
                 if verdict.get("passed"):
-                    messages.append({"role": "user", "content": user_query})
-                    messages.append({"role": "assistant", "content": state.final_result or state.thinking})
-                    redis_client.save_history(session_id, messages)
-                    _save_episodic_memory(mem_tool, user_query, state.final_result or state.thinking, session_id)
+                    reply = state.final_result or state.thinking
+                    persist(reply, "ok", tool_calls=len(state.results))
+                    _save_episodic_memory(mem_tool, user_query, reply, conversation_id)
 
                     outcome = "passed"
-                    yield sse({"event": "done", "data": {"status": "passed", "session_id": session_id}})
+                    yield sse({"event": "done", "data": {
+                        "status": "passed",
+                        "session_id": conversation_id, "conversation_id": conversation_id,
+                        "message_count": turn["count"],
+                    }})
                     return
 
                 retry_count += 1
                 if retry_count >= MAX_RETRIES:
-                    messages.append({"role": "user", "content": user_query})
-                    messages.append({"role": "assistant", "content": state.final_result or state.thinking})
-                    redis_client.save_history(session_id, messages)
-                    _save_episodic_memory(mem_tool, user_query, state.final_result or state.thinking, session_id)
+                    reply = state.final_result or state.thinking
+                    # 重试耗尽也是一次「完整的一轮」—— 用户看到了最终答复，
+                    # 这轮必须落库，否则刷新后它会凭空消失（B9）
+                    persist(reply, "ok", tool_calls=len(state.results))
+                    _save_episodic_memory(mem_tool, user_query, reply, conversation_id)
 
                     outcome = "max_retries"
-                    yield sse({"event": "done", "data": {"status": "max_retries", "retry_count": retry_count, "session_id": session_id}})
+                    yield sse({"event": "done", "data": {
+                        "status": "max_retries", "retry_count": retry_count,
+                        "session_id": conversation_id, "conversation_id": conversation_id,
+                        "message_count": turn["count"],
+                    }})
                     return
 
                 yield sse({"event": "retry", "data": {"retry_count": retry_count}})
@@ -273,16 +366,26 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
             # 友好降级：把异常通过 SSE 告诉前端，而不是直接断连
             outcome = "error"
             logger.bind(task_id=task_id).opt(exception=True).error("[workflow] 流式执行异常")
-            yield sse({"event": "error", "data": {"message": f"服务内部异常，请重试。错误: {str(e)}"}})
+            # 把**用户已经看到的那部分**存下来 —— 中途报错也让刷新后能复原现场
+            persist(state.thinking if state else "", "error")
+            yield sse({"event": "error", "data": {
+                "message": f"服务内部异常，请重试。错误: {str(e)}",
+                "conversation_id": conversation_id,
+            }})
 
         finally:
-            # ⚠️ 这里只能记日志、绝不能 yield：客户端中途断连时 Starlette 会 close() 生成器，
-            #    finally 里 yield 会抛 RuntimeError: generator ignored GeneratorExit。
+            # 走到这里还没落过库，只可能是**客户端中途断连**：
+            #   close() 在某个 yield 处抛 GeneratorExit，而它继承 BaseException，
+            #   上面的 `except Exception` 抓不到 —— 所以补写只能放这里（B11）。
+            # 用 status='interrupted' 与正常完成区分开，便于事后判断哪些是半截对话。
+            # ⚠️ 这里**只能记日志和写库，绝不能 yield**：生成器已被 close()，
+            #    yield 会抛 RuntimeError: generator ignored GeneratorExit（B13）。
             #    outcome=aborted 即表示「客户端提前断开」，不是成功。
-            logger.bind(request_id=rid, task_id=task_id, session_id=session_id).info(
-                "[workflow] done | outcome={} | retry={} | steps={} | elapsed={:.0f}ms",
-                outcome, retry_count, len(state.plan) if state else 0,
-                (time.perf_counter() - t0) * 1000,
+            persist(state.thinking if state else "", "interrupted")
+            logger.bind(request_id=rid, task_id=task_id, session_id=conversation_id).info(
+                "[workflow] done | conv={} | outcome={} | retry={} | steps={} | flagged={} | elapsed={:.0f}ms",
+                conversation_id, outcome, retry_count, len(state.plan) if state else 0,
+                outcome == "aborted", (time.perf_counter() - t0) * 1000,
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

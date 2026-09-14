@@ -105,7 +105,7 @@ import {
 } from '@/api/conversation'
 import { isApiNotFound } from '@/api/client'
 
-const props = defineProps<{ visible: boolean; convId: number | null }>()
+const props = defineProps<{ visible: boolean; convId: string | null }>()
 defineEmits<{
   (e: 'close'): void
   (e: 'edit', conv: ConvDetail): void

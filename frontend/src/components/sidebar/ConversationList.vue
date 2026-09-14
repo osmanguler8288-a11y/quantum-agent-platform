@@ -32,7 +32,6 @@ import { useRoute, useRouter } from 'vue-router'
 import type { Conversation } from '@/types'
 import { useConversationStore } from '@/stores/conversation'
 import { useChatStore } from '@/stores/chat'
-import { useSessionStore } from '@/stores/session'
 
 defineProps<{ collapsed: boolean }>()
 
@@ -40,7 +39,6 @@ const route = useRoute()
 const router = useRouter()
 const conv = useConversationStore()
 const chat = useChatStore()
-const session = useSessionStore()
 
 const sorted = computed(() =>
   [...conv.conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
@@ -51,16 +49,16 @@ onMounted(() => conv.load())
 
 /** 新建对话：清空当前会话并直接进入新对话界面（不再依赖调用方所在页面） */
 function onNew() {
-  conv.newConversation()
-  chat.clear()
-  session.clear()
+  // startNew 内部已经把「清消息 + 解绑 sessionId + 取消侧边栏选中」做全了。
+  // ⚠️ 只清 messages 而不清 sessionId 是个隐蔽的坑：界面看着是「新对话」，
+  //    下一句话却会接着上一个会话发过去。
+  chat.startNew()
   if (route.name !== 'chat') router.push({ name: 'chat' })
 }
 
+/** 切到历史会话：loadConversation 会一并绑定 session 与侧边栏选中态 */
 function onSwitch(c: Conversation) {
-  conv.switchTo(c.id)
-  session.setSession(c.id)
-  chat.loadConversation(c.id, c.title)
+  chat.loadConversation(c.id)
 }
 
 /** 侧边栏用紧凑的本地时间（后端下发的是 ISO/UTC，直接切片会差 8 小时） */
