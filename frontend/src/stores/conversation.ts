@@ -56,6 +56,11 @@ export const useConversationStore = defineStore('conversation', {
         if (isApiNotFound(e)) {
           this.conversations = []
           this.loaded = true
+        } else {
+          // ⚠️ 不能静默吞掉：401 / 503 / 断网都会走到这里，
+          //    界面显示「暂无历史对话」而实际是请求失败 —— 这种假象极难排查。
+          //    侧边栏不适合弹错误，所以保留原列表 + 在控制台留痕。
+          console.warn('[conversation] 历史对话加载失败，列表保持原样:', e)
         }
       } finally {
         this.loading = false

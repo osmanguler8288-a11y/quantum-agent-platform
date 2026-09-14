@@ -10,7 +10,11 @@
 
       <template v-else>
         <template v-for="(block, i) in message.blocks" :key="i">
-          <ThinkingBlock v-if="block.type === 'thinking'" :text="block.text" />
+          <!-- ⚠️ assistant 分支必须有 text —— 从后端回填的历史消息就是纯文本块
+               （见 stores/chat.ts 的 loadConversation）。少了这一支，
+               点开历史对话时用户提问能看到、助手回复却是空白。 -->
+          <div v-if="block.type === 'text'" class="assistant-text">{{ block.text }}</div>
+          <ThinkingBlock v-else-if="block.type === 'thinking'" :text="block.text" />
           <PlanCard v-else-if="block.type === 'plan'" :plan="block.plan" />
           <StepList v-else-if="block.type === 'steps'" :steps="block.steps" />
           <ResultViz v-else-if="block.type === 'viz'" :viz="block.viz" />
@@ -100,6 +104,15 @@ defineProps<{ message: ChatMessage; isRunning?: boolean }>()
 
 .user-text {
   white-space: pre-wrap;
+}
+
+/* 历史回填的助手回复（纯文本块）——与流式时的 ThinkingBlock 区分开，
+   这里展示的是**已落库的最终答复**，不是过程中的推理 */
+.assistant-text {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  font-size: 13.5px;
+  color: var(--text);
 }
 
 .error-block {
