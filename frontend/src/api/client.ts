@@ -43,6 +43,20 @@ export function isApiNotFound(e: unknown): boolean {
   return e instanceof ApiError && e.status === 404
 }
 
+/**
+ * 响应体为空时的兜底文案。
+ *
+ * ⚠️ 为什么需要：网关（Go）到 FastAPI 那一段断掉时，网关返回的是
+ *    **content-length: 0 的空 502**，前端拿不到任何 error 字段，
+ *    只能显示「请求失败 (502)」—— 完全看不出是后端没启动。
+ *    这类"哪一跳断了"的信息必须在这里补上，否则每次都要重新排查一遍。
+ */
+const STATUS_HINT: Record<number, string> = {
+  502: '后端服务不可达（FastAPI 没在运行）。执行 backend/start-dev.ps1 启动',
+  503: '服务暂时不可用，请稍后重试',
+  504: '后端响应超时',
+}
+
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const resp = await fetch(url, {
     ...options,
@@ -57,7 +71,11 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!resp.ok) {
-    const message = data?.error || data?.detail || `请求失败 (${resp.status})`
+    // ⚠️ 只认**字符串**的 error/detail：FastAPI 默认的 422 里 detail 是数组，
+    //    直接透传会让界面渲染出 "[object Object]"（或一长串 [object Object],...）。
+    const raw = data?.error ?? data?.detail
+    const message =
+      (typeof raw === 'string' && raw) || STATUS_HINT[resp.status] || `请求失败 (${resp.status})`
     throw new ApiError(message, resp.status)
   }
   return data as T

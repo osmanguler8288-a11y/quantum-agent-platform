@@ -338,6 +338,18 @@ func main() {
 	u, _ := url.Parse(backendURL)
 	backend = httputil.NewSingleHostReverseProxy(u)
 
+	// ⚠️ 默认的 ErrorHandler 只回一个**空的 502**（content-length: 0）。
+	//    前端 client.ts 是 `data?.error || data?.detail`，空体只能显示成
+	//    「请求失败 (502)」—— 完全看不出是 FastAPI 没启动，每断一次都要重新排查。
+	//    这里补上项目统一的 {error, code} 契约，并把实际尝试的地址写进文案。
+	backend.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		log.Printf("[auth] 后端不可达 %s %s -> %s: %v", r.Method, r.URL.Path, backendURL, err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error": "后端服务不可达（" + backendURL + "）。请先启动 FastAPI：backend/start-dev.ps1",
+			"code":  "BACKEND_UNREACHABLE",
+		})
+	}
+
 	log.Printf("[auth] 服务启动 :8080 → %s", backendURL)
 	if err := http.ListenAndServe(":8080", http.HandlerFunc(mainHandler)); err != nil {
 		log.Fatalf("[auth] 启动失败: %v", err)
