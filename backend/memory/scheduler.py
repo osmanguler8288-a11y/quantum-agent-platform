@@ -9,6 +9,7 @@ import time
 from typing import Optional, Callable
 
 from memory.manager import MemoryManager
+from app.utils.logger import logger
 
 
 class MemoryScheduler:
@@ -37,7 +38,7 @@ class MemoryScheduler:
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="memory-scheduler")
         self._thread.start()
-        print(f"[memory-scheduler] 启动，每 {self.interval}s 跑一次清理")
+        logger.info("[memory-scheduler] 启动，每 {}s 跑一次清理", self.interval)
 
     def stop(self):
         self._stop.set()
@@ -54,19 +55,19 @@ class MemoryScheduler:
             try:
                 self._run_once()
             except Exception as e:
-                print(f"[memory-scheduler] 清理出错: {e}")
+                logger.warning("[memory-scheduler] 清理出错: {}", e)
 
             # 等待下一次（可被 stop 中断）
             if self._stop.wait(self.interval):
                 break
 
-        print("[memory-scheduler] 已停止")
+        logger.info("[memory-scheduler] 已停止")
 
     # ─── 单次执行 ──────────────────────────────────
     def _run_once(self):
         user_ids = self._get_all_users()
         if not user_ids:
-            print("[memory-scheduler] 无用户需清理")
+            logger.info("[memory-scheduler] 无用户需清理")
             return
 
         total_forgotten = 0
@@ -82,12 +83,12 @@ class MemoryScheduler:
                     max_age_days=self.max_age_days,
                 )
                 if count > 0:
-                    print(f"[memory-scheduler] 用户 {user_id}: 清理 {count} 条")
+                    logger.info("[memory-scheduler] 用户 {}: 清理 {} 条", user_id, count)
                 total_forgotten += count
             except Exception as e:
-                print(f"[memory-scheduler] 用户 {user_id} 清理失败: {e}")
+                logger.warning("[memory-scheduler] 用户 {} 清理失败: {}", user_id, e)
 
-        print(f"[memory-scheduler] 本次清理完成：共遗忘 {total_forgotten} 条记忆")
+        logger.info("[memory-scheduler] 本次清理完成：共遗忘 {} 条记忆", total_forgotten)
 
     # ─── 获取所有用户 ID ────────────────────────────
     def _get_all_users(self) -> list[str]:
@@ -113,10 +114,10 @@ class MemoryScheduler:
                 limit=10000,
             )
             user_ids = list({r.get("user_id") for r in results if r.get("user_id")})
-            print(f"[memory-scheduler] 发现 {len(user_ids)} 个用户")
+            logger.info("[memory-scheduler] 发现 {} 个用户", len(user_ids))
             return user_ids
         except Exception as e:
-            print(f"[memory-scheduler] 获取用户列表失败: {e}")
+            logger.warning("[memory-scheduler] 获取用户列表失败: {}", e)
             return []
 
 

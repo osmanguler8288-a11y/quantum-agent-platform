@@ -1,4 +1,7 @@
+import time
+
 from agent.state import AgentState, TaskStatus
+from app.utils.logger import logger
 
 
 class Executor:
@@ -24,7 +27,7 @@ class Executor:
             else:
                 tool_name = self._get_tool_name(step)
                 params = self._get_params(step, input_data)
-                result = self._execute_with_retry(tool_name, params)
+                result = self._execute_with_retry(tool_name, params, state.task_id)
 
             if result["status"] == "error":
                 state.results.append({"step": i, "error": result["message"]})
@@ -54,7 +57,7 @@ class Executor:
             else:
                 tool_name = self._get_tool_name(step)
                 params = self._get_params(step, input_data)
-                result = self._execute_with_retry(tool_name, params)
+                result = self._execute_with_retry(tool_name, params, state.task_id)
 
             state.results.append({"step": i, "output": result})
 
@@ -102,14 +105,40 @@ class Executor:
             return {"status": "error", "tool": "reasoning",
                     "message": str(e)}
 
-    def _execute_with_retry(self, tool_name: str, params: dict) -> dict:
+    def _execute_with_retry(self, tool_name: str, params: dict, task_id: str | None = None) -> dict:
+        """调用工具并记录**每次调用的耗时与成败**（含 task_id，便于与状态迁移日志串联）。
+
+        ⚠️ 注意：这里只是把原来的 print 换成结构化日志 + 计时，**没有改动重试语义**。
+           已知缺陷（留待 P5 修复）：`MCPClient.call()` 内部把所有异常都吞成了
+           error dict、从不外抛，所以下面的 `except` 分支实际不可达 —— 循环恒在
+           第一次迭代就 return，末尾「重试N次全部失败」是死代码。
+        """
+        log = logger.bind(task_id=task_id or "-")
+
         for attempt in range(1, self.max_retries + 1):
+            t0 = time.perf_counter()
             try:
                 result = self.mcp.call(tool_name, params)
-                print(f"[execute] tool={tool_name}, attempt={attempt}, OK")
+                elapsed_ms = (time.perf_counter() - t0) * 1000
+                # ⚠️ 已知偏差：builtin runner 用「返回 '[错误] ...' 字符串」表示失败，
+                #    MCPClient 会把它归类为 success。这里的成败标签沿用 MCPClient 的
+                #    envelope，不做额外推断 —— 真正的统一修复在 P5。
+                if result.get("status") == "error":
+                    log.warning(
+                        "[execute] tool={} | attempt={} | 耗时={:.0f}ms | 失败: {}",
+                        tool_name, attempt, elapsed_ms, result.get("message", ""),
+                    )
+                else:
+                    log.info(
+                        "[execute] tool={} | attempt={} | 耗时={:.0f}ms | 成功",
+                        tool_name, attempt, elapsed_ms,
+                    )
                 return result
-            except Exception as e:
-                print(f"[execute] tool={tool_name}, attempt={attempt}, FAIL: {e}")
+            except Exception:
+                log.opt(exception=True).warning(
+                    "[execute] tool={} | attempt={} | 耗时={:.0f}ms | 抛出异常",
+                    tool_name, attempt, (time.perf_counter() - t0) * 1000,
+                )
 
         return {"status": "error", "message": f"重试{self.max_retries}次全部失败"}
 

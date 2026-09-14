@@ -15,6 +15,26 @@ const router = createRouter({
       name: 'chat',
       component: () => import('@/views/ChatView.vue'),
     },
+    {
+      path: '/tools',
+      name: 'tools',
+      component: () => import('@/views/ToolLibraryView.vue'),
+    },
+    {
+      path: '/knowledge',
+      name: 'knowledge',
+      component: () => import('@/views/KnowledgeView.vue'),
+    },
+    {
+      path: '/conversations',
+      name: 'conversations',
+      component: () => import('@/views/ConversationView.vue'),
+    },
+    {
+      path: '/skills',
+      name: 'skills',
+      component: () => import('@/views/SkillView.vue'),
+    },
   ],
 })
 

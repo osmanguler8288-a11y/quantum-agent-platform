@@ -40,9 +40,15 @@ export const useChatStore = defineStore('chat', {
       if (!query.trim() || this.isRunning) return
 
       this.addUserMessage(query)
-      const assistant: ChatMessage = { id: genId(), role: 'assistant', blocks: [] }
-      this.messages.push(assistant)
+      this.messages.push({ id: genId(), role: 'assistant', blocks: [] })
       this.isRunning = true
+
+      // ⚠️ 必须操作 push 之后由响应式系统包装的那个**代理对象**，不能持有 push 前
+      //    创建的原始对象去改 —— Vue 的 reactive 只在**通过代理访问**时才建立依赖，
+      //    直接改原始对象的嵌套属性不会触发任何重渲染。
+      //    踩这个坑的表现是：SSE 事件全部正常收到、数据也对，但界面在流式过程中
+      //    一个字都不更新，直到最后 isRunning 变化才一次性把攒的文本全渲染出来。
+      const assistant = this.messages[this.messages.length - 1]
 
       const session = useSessionStore()
 

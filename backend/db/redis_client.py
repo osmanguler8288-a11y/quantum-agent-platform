@@ -2,6 +2,7 @@ import json
 import redis
 import threading
 from config.settings import settings
+from app.utils.logger import logger
 
 
 class RedisClient:
@@ -38,11 +39,11 @@ class RedisClient:
 
         if t.is_alive() or not result["ok"]:
             if result["err"]:
-                print(f"[redis] [WARN] 连接失败: {result['err']}")
-            print("[redis] [WARN] Redis 未启动，多轮对话历史不可用。启动方式：docker-compose up -d redis")
+                logger.warning("[redis] 连接失败: {}", result["err"])
+            logger.warning("[redis] Redis 未启动，多轮对话历史不可用。启动方式：docker-compose up -d redis")
             return False
 
-        print(f"[redis] 已连接 {self.client.connection_pool.connection_kwargs['host']}")
+        logger.info("[redis] 已连接 {}", self.client.connection_pool.connection_kwargs['host'])
         return True
 
     @property
@@ -60,7 +61,7 @@ class RedisClient:
             return json.loads(raw)
         except Exception:
             self._available = False
-            print("[redis] [WARN] 连接断开，对话历史不可用")
+            logger.warning("[redis] 连接断开，对话历史不可用")
             return []
 
     def save_history(self, session_id: str, messages: list[dict], ttl: int = 3600):
@@ -72,7 +73,7 @@ class RedisClient:
             self.client.setex(key, ttl, raw)
         except Exception:
             self._available = False
-            print("[redis] [WARN] 连接断开，对话未保存")
+            logger.warning("[redis] 连接断开，对话未保存")
 
     def delete_history(self, session_id: str):
         if not self._available:
@@ -82,3 +83,24 @@ class RedisClient:
             self.client.delete(key)
         except Exception:
             self._available = False
+
+
+class NullRedis:
+    """Redis 完全不可用时的空对象。
+
+    workflow.py 里有多处**直接**调用 redis_client（外面没有 try/except），
+    例如 `redis_client.get_history(...)` / `save_history(...)`。
+    若让它为 None 会直接 AttributeError 把整条对话链路打断 ——
+    用一个空对象兜住，语义是「历史读写全部降级为无操作」。
+    """
+
+    available = False
+
+    def get_history(self, session_id: str) -> list[dict]:
+        return []
+
+    def save_history(self, session_id: str, messages: list[dict], ttl: int = 3600):
+        return None
+
+    def delete_history(self, session_id: str):
+        return None

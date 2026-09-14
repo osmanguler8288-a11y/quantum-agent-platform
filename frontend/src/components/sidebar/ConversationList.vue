@@ -19,13 +19,16 @@
         </div>
       </div>
 
-      <div v-if="sorted.length === 0" class="empty">暂无历史对话</div>
+      <div v-if="!sorted.length" class="empty">
+        {{ conv.loading && !conv.loaded ? '加载中…' : '暂无历史对话' }}
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type { Conversation } from '@/types'
 import { useConversationStore } from '@/stores/conversation'
 import { useChatStore } from '@/stores/chat'
@@ -33,6 +36,8 @@ import { useSessionStore } from '@/stores/session'
 
 defineProps<{ collapsed: boolean }>()
 
+const route = useRoute()
+const router = useRouter()
 const conv = useConversationStore()
 const chat = useChatStore()
 const session = useSessionStore()
@@ -41,10 +46,15 @@ const sorted = computed(() =>
   [...conv.conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
 )
 
+// 历史对话来自真实接口（后端未就绪时保持空列表）
+onMounted(() => conv.load())
+
+/** 新建对话：清空当前会话并直接进入新对话界面（不再依赖调用方所在页面） */
 function onNew() {
   conv.newConversation()
   chat.clear()
   session.clear()
+  if (route.name !== 'chat') router.push({ name: 'chat' })
 }
 
 function onSwitch(c: Conversation) {
@@ -53,8 +63,12 @@ function onSwitch(c: Conversation) {
   chat.loadConversation(c.id, c.title)
 }
 
+/** 侧边栏用紧凑的本地时间（后端下发的是 ISO/UTC，直接切片会差 8 小时） */
 function formatTime(ts: string): string {
-  return ts.replace('T', ' ').slice(0, 16)
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return '—'
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 </script>
 

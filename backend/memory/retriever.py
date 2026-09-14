@@ -15,6 +15,7 @@ from typing import Optional
 
 from memory.models import MemoryItem, MemoryConfig
 from memory.store import MilvusStore
+from app.utils.logger import logger
 
 
 class MemoryRetriever:
@@ -78,7 +79,7 @@ class MemoryRetriever:
                     continue
             return 0.5
         except Exception as e:
-            print(f"[memory] 重要性自评失败: {e}")
+            logger.warning("[memory] 重要性自评失败: {}", e)
             return 0.5
 
     # ─── 自动整合（working/episodic → semantic）──────
@@ -90,7 +91,7 @@ class MemoryRetriever:
     ) -> int:
         """把高重要性的 working/episodic 记忆整合成 semantic 知识"""
         if not self.llm:
-            print("[memory] 跳过整合：未注入 LLM")
+            logger.info("[memory] 跳过整合：未注入 LLM")
             return 0
 
         from_types = from_types or ["working", "episodic"]
@@ -100,7 +101,7 @@ class MemoryRetriever:
         items = self.store.query(user_id=user_id, top_k=1000)
         candidates = [i for i in items if i.memory_type in from_types and i.importance >= threshold]
         if not candidates:
-            print(f"[memory] 无高重要性记忆可整合 (threshold={threshold})")
+            logger.info("[memory] 无高重要性记忆可整合 (threshold={})", threshold)
             return 0
 
         # 2. 让 LLM 抽取共性，写成 1 条 semantic 记忆
@@ -127,7 +128,7 @@ class MemoryRetriever:
             end = raw.rfind("]") + 1
             knowledge_list = json.loads(raw[start:end])
         except Exception as e:
-            print(f"[memory] 整合 LLM 解析失败: {e}")
+            logger.warning("[memory] 整合 LLM 解析失败: {}", e)
             return 0
 
         # 3. 写入 semantic 记忆
@@ -146,7 +147,7 @@ class MemoryRetriever:
             self.store.add(item)
             count += 1
 
-        print(f"[memory] 整合出 {count} 条 semantic 记忆 (源: {len(candidates)} 条)")
+        logger.info("[memory] 整合出 {} 条 semantic 记忆 (源: {} 条)", count, len(candidates))
         return count
 
     # ─── 遗忘机制 ────────────────────────────────

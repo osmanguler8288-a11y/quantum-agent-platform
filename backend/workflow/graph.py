@@ -5,6 +5,7 @@ from workflow.nodes.exec_node import make_exec_node
 from workflow.nodes.critique_node import make_critique_node
 from workflow.nodes.rag_node import make_rag_node
 from workflow.nodes.memory_node import make_memory_node
+from app.utils.logger import logger
 
 MAX_RETRIES = 3
 
@@ -13,9 +14,9 @@ def route_after_plan(state: dict) -> str:
     """plan 为空时（纯知识问答）直接结束，跳过执行"""
     plan = state.get("plan", [])
     if not plan:
-        print(f"[route] plan empty → END")
+        logger.info("[route] plan 为空 → END")
         return "end"
-    print(f"[route] plan has {len(plan)} steps → exec")
+    logger.info("[route] plan 有 {} 步 → exec", len(plan))
     return "exec"
 
 
@@ -25,14 +26,14 @@ def route_after_critic(state: dict) -> str:
     retry = state.get("retry_count", 0)
 
     if verdict.get("passed"):
-        print(f"[route] critic pass → END")
+        logger.info("[route] critic 通过 → END")
         return "end"
 
     if retry >= MAX_RETRIES:
-        print(f"[route] retry={retry} >= {MAX_RETRIES} → END")
+        logger.info("[route] retry={} >= {} → END", retry, MAX_RETRIES)
         return "end"
 
-    print(f"[route] critic fail, retry={retry} → exec")
+    logger.info("[route] critic 未通过, retry={} → exec", retry)
     return "exec"
 
 

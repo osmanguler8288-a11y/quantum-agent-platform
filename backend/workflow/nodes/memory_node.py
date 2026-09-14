@@ -1,6 +1,7 @@
 """Memory 节点 — 在 plan 之前检索相关长期记忆，写入 state 供 planner 使用"""
 
 from memory.tool import MemoryTool
+from app.utils.logger import logger
 
 
 def make_memory_node(memory_tool_getter):
@@ -31,12 +32,12 @@ def make_memory_node(memory_tool_getter):
                 for m in results:
                     lines.append(f"- [{m.memory_type}/{m.importance:.2f}] {m.content[:200]}")
                 state["memory_context"] = "\n".join(lines)
-                print(f"[memory-node] 召回 {len(results)} 条相关记忆")
+                logger.info("[memory-node] 召回 {} 条相关记忆", len(results))
             else:
                 state["memory_context"] = ""
-                print(f"[memory-node] 无相关历史记忆")
+                logger.info("[memory-node] 无相关历史记忆")
         except Exception as e:
-            print(f"[memory-node] 检索失败: {e}")
+            logger.warning("[memory-node] 检索失败: {}", e)
             state["memory_context"] = ""
 
         return state

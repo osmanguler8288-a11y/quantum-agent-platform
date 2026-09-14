@@ -1,3 +1,4 @@
+from app.utils.logger import logger
 def make_critique_node(critic):
     def critique_node(state: dict) -> dict:
         # 1. 取出当前步的 step 和 result
@@ -20,6 +21,6 @@ def make_critique_node(critic):
         # 4. 写回 state，供 graph.py 的路由函数读取
         state["verdict"] = verdict
 
-        print(f"[workflow] critic: passed={verdict.get('passed')}, retry={state['retry_count']}")
+        logger.info("[workflow] critic: passed={}, retry={}", verdict.get('passed'), state['retry_count'])
         return state
     return critique_node

@@ -21,7 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import SuggestionChips from './SuggestionChips.vue'
 import StructureInput from './StructureInput.vue'
 
@@ -33,6 +33,19 @@ const emit = defineEmits<{
 const query = ref('')
 const showStructure = ref(false)
 const pendingStructure = ref<{ format: string; data: string; filename?: string }>()
+
+/**
+ * 跨页预填草稿：技能中心「在对话中试用」等入口通过 sessionStorage 留一句调用话术，
+ * 挂载时取一次并立即清掉，避免刷新后重复出现。
+ */
+const CHAT_DRAFT_KEY = 'qap_chat_draft'
+onMounted(() => {
+  const draft = sessionStorage.getItem(CHAT_DRAFT_KEY)
+  if (draft) {
+    query.value = draft
+    sessionStorage.removeItem(CHAT_DRAFT_KEY)
+  }
+})
 
 function fill(text: string) {
   query.value = text

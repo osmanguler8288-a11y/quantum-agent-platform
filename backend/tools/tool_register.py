@@ -14,6 +14,7 @@ Tool 数据类的字段对齐 MCP 协议的 tool 定义：
 
 from dataclasses import dataclass, field
 from typing import Callable, Any
+from app.utils.logger import logger
 
 
 @dataclass
@@ -35,9 +36,9 @@ class ToolRegistry:
     def register(self, tool: Tool):
         """注册一个 Tool 对象"""
         if tool.name in self._tools:
-            print(f"[registry] [WARN] override: {tool.name}")
+            logger.warning("[registry] override: {}", tool.name)
         self._tools[tool.name] = tool
-        print(f"[registry] [OK] {tool.name}")
+        logger.debug("[registry] 注册 {} OK", tool.name)
 
 
     def register_function(self, name: str, description: str,

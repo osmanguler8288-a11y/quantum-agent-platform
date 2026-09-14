@@ -25,6 +25,7 @@ from pymilvus import MilvusClient as _MilvusClient
 from config.settings import settings
 from memory.models import MemoryItem, MemoryConfig
 from rag.embedder import Embedder
+from app.utils.logger import logger
 
 
 class MilvusStore:
@@ -44,9 +45,9 @@ class MilvusStore:
                 self._create_collection()
             self.client.load_collection(self.config.milvus_collection)
             self._available = True
-            print(f"[memory-store] 已连接 Milvus {host}:{port}, collection={self.config.milvus_collection}")
+            logger.info("[memory-store] 已连接 Milvus {}:{}, collection={}", host, port, self.config.milvus_collection)
         except (pymilvus.exceptions.MilvusException, ConnectionError, TimeoutError) as e:
-            print(f"[memory-store] [WARN] Milvus 未启动，长期记忆不可用: {e}")
+            logger.warning("[memory-store] Milvus 未启动，长期记忆不可用: {}", e)
 
     @property
     def available(self) -> bool:
@@ -85,7 +86,7 @@ class MilvusStore:
             collection_name=self.config.milvus_collection,
             index_params=index_params,
         )
-        print(f"[memory-store] Collection '{self.config.milvus_collection}' 已创建")
+        logger.info("[memory-store] Collection '{}' 已创建", self.config.milvus_collection)
 
     def _embed(self, text: str) -> list[float]:
         return self.embedder.embed_query(text)
@@ -112,7 +113,7 @@ class MilvusStore:
         ids = result.get("ids") if isinstance(result, dict) else None
         if ids:
             item.id = str(ids[0])
-        print(f"[memory-store] 写入记忆 user={item.user_id} type={item.memory_type} importance={item.importance:.2f}")
+        logger.info("[memory-store] 写入记忆 user={} type={} importance={:.2f}", item.user_id, item.memory_type, item.importance)
         return item.id
 
     # ─── 搜索 ────────────────────────────────────
@@ -147,7 +148,7 @@ class MilvusStore:
                 output_fields=["text", "user_id", "memory_type", "importance", "timestamp", "session_id", "metadata_json"],
             )
         except Exception as e:
-            print(f"[memory-store] 搜索失败: {e}")
+            logger.warning("[memory-store] 搜索失败: {}", e)
             return []
 
         hits = results[0] if results else []
@@ -195,7 +196,7 @@ class MilvusStore:
                 limit=top_k,
             )
         except Exception as e:
-            print(f"[memory-store] query 失败: {e}")
+            logger.warning("[memory-store] query 失败: {}", e)
             return []
 
         items = []
@@ -221,9 +222,9 @@ class MilvusStore:
             return
         try:
             self.client.delete(self.config.milvus_collection, filter=f'id in [{item_id}]')
-            print(f"[memory-store] 已删除记忆 {item_id}（重要性更新前清理）")
+            logger.info("[memory-store] 已删除记忆 {}（重要性更新前清理）", item_id)
         except Exception as e:
-            print(f"[memory-store] 更新重要性失败: {e}")
+            logger.warning("[memory-store] 更新重要性失败: {}", e)
 
     # ─── 删除 ────────────────────────────────────
     def delete_by_filter(self, expr: str) -> int:
@@ -242,10 +243,10 @@ class MilvusStore:
                 return 0
             ids_str = ", ".join(str(i) for i in ids)
             self.client.delete(self.config.milvus_collection, filter=f'id in [{ids_str}]')
-            print(f"[memory-store] 删除 {len(ids)} 条记忆 (filter={expr})")
+            logger.info("[memory-store] 删除 {} 条记忆 (filter={})", len(ids), expr)
             return len(ids)
         except Exception as e:
-            print(f"[memory-store] 删除失败: {e}")
+            logger.warning("[memory-store] 删除失败: {}", e)
             return 0
 
     # ─── 工具方法 ────────────────────────────────

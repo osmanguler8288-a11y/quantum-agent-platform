@@ -1,5 +1,8 @@
+import time
+
 from openai import OpenAI
 from config.settings import settings
+from app.utils.logger import logger, get_request_id
 
 SYSTEM_PROMPT = """你是一个量子化学计算助手，专注于：
 - 量子化学计算（ Gaussian、Multiwfn、构象搜索等）
@@ -10,7 +13,12 @@ SYSTEM_PROMPT = """你是一个量子化学计算助手，专注于：
 
 
 class LLMClient:
-    """LLM 调用的统一封装"""
+    """LLM 调用的统一封装
+
+    所有方法都会记录：耗时、token 用量（流式为 chunk 数/字符数 + 首 token 延迟 TTFT）。
+    异常**原样抛出**（不吞），但抛出前先落一条带 traceback 的 warning —— 这是排查
+    「服务内部异常」的唯一线索。
+    """
 
     def __init__(self, model=settings.LLM_MODEL,
                  base_url=settings.LLM_BASE_URL,
@@ -20,7 +28,13 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.client = OpenAI(api_key=api_key, base_url=base_url,timeout=15.0)
+        # 超时可配：settings.LLM_TIMEOUT（此前硬编码 15s，对推理模型偏紧）
+        self.client = OpenAI(api_key=api_key, base_url=base_url,
+                             timeout=settings.LLM_TIMEOUT)
+        logger.bind(model=self.model).debug(
+            "[llm] init | model={} | base_url={} | timeout={}s",
+            self.model, base_url, settings.LLM_TIMEOUT,
+        )
 
     def generate(self, prompt: str, context: str = "") -> str:
         messages = []
@@ -28,53 +42,163 @@ class LLMClient:
             messages.append({"role": "system", "content": context})
         messages.append({"role": "user", "content": prompt})
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
+        t0 = time.perf_counter()
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+        except Exception:
+            logger.bind(model=self.model).opt(exception=True).warning(
+                "[llm] generate 失败 | model={} | prompt_len={} | elapsed={:.0f}ms",
+                self.model, len(prompt), (time.perf_counter() - t0) * 1000,
+            )
+            raise
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        content = response.choices[0].message.content
+        usage = getattr(response, "usage", None)
+        logger.bind(model=self.model).info(
+            "[llm] generate ok | model={} | prompt_len={} | completion_len={} | "
+            "prompt_tokens={} completion_tokens={} | elapsed={:.0f}ms",
+            self.model, len(prompt), len(content or ""),
+            getattr(usage, "prompt_tokens", None),
+            getattr(usage, "completion_tokens", None),
+            elapsed_ms,
         )
-        return response.choices[0].message.content
-   
-    def generate_stream(self,prompt:str):
-        """chunk 每个 token"""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-        )
-        for chunk in response:
-            delta = chunk.choices[0].delta
-            content = delta.content if hasattr(delta, 'content') else delta.get("content")
-            if content:
-                yield content
+        # ⚠️ `or ""` 是必要修复：推理模型返回空 content 时原来的写法会把 None 传出去，
+        #    下游 Planner._parse_response 的 raw.strip() 直接 AttributeError，
+        #    被 workflow 兜成「服务内部异常」——用户与日志两边都看不到真实原因。
+        return content or ""
+
+    def generate_stream(self, prompt: str):
+        """chunk 每个 token
+
+        ⚠️ 这是生成器，不能用 with 包裹。try/except/finally 必须写在函数体内，
+           且 finally 里只能记日志、不能 yield（客户端断连时会抛 GeneratorExit）。
+        """
+        t0 = time.perf_counter()
+        # 生成器开头捕获 rid：客户端断连时 finally 会脱离请求上下文，contextvar 已失效
+        rid = get_request_id()
+        ttft_ms = None
+        n_chunks = 0
+        n_chars = 0
+        completed = False
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                stream=True,
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta
+                content = delta.content if hasattr(delta, 'content') else delta.get("content")
+                if content:
+                    if ttft_ms is None:
+                        ttft_ms = (time.perf_counter() - t0) * 1000
+                    n_chunks += 1
+                    n_chars += len(content)
+                    yield content
+            completed = True
+        except Exception:
+            logger.bind(model=self.model).opt(exception=True).warning(
+                "[llm] generate_stream 失败 | model={} | prompt_len={} | elapsed={:.0f}ms "
+                "chunks={} chars={}",
+                self.model, len(prompt), (time.perf_counter() - t0) * 1000,
+                n_chunks, n_chars,
+            )
+            raise
+        finally:
+            # completed=False 精确区分「模型正常跑完」与「调用方中途断开」——
+            # 后者的 ttft/chars 是残缺值，不该混进性能统计。
+            logger.bind(request_id=rid, model=self.model).info(
+                "[llm] generate_stream | model={} | ttft={} | elapsed={:.0f}ms | "
+                "chunks={} chars={} completed={}",
+                self.model,
+                f"{ttft_ms:.0f}ms" if ttft_ms is not None else "-",
+                (time.perf_counter() - t0) * 1000,
+                n_chunks, n_chars, completed,
+            )
+
     def console(self, messages: list[dict], system_prompt: str = None) -> str:
         """支持多轮对话，自动在开头注入 system prompt 保证角色一致"""
         if system_prompt is None:
             system_prompt = SYSTEM_PROMPT
         full = [{"role": "system", "content": system_prompt}] + messages
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=full,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
+
+        t0 = time.perf_counter()
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=full,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+        except Exception:
+            logger.bind(model=self.model).opt(exception=True).warning(
+                "[llm] console 失败 | model={} | turns={} | elapsed={:.0f}ms",
+                self.model, len(messages), (time.perf_counter() - t0) * 1000,
+            )
+            raise
+
+        content = response.choices[0].message.content
+        usage = getattr(response, "usage", None)
+        logger.bind(model=self.model).info(
+            "[llm] console ok | model={} | turns={} | completion_len={} | "
+            "prompt_tokens={} completion_tokens={} | elapsed={:.0f}ms",
+            self.model, len(messages), len(content or ""),
+            getattr(usage, "prompt_tokens", None),
+            getattr(usage, "completion_tokens", None),
+            (time.perf_counter() - t0) * 1000,
         )
-        return response.choices[0].message.content
+        return content or ""
 
     def console_stream(self, messages: list[dict], system_prompt: str = None):
         """流式多轮对话，逐 token yield"""
         if system_prompt is None:
             system_prompt = SYSTEM_PROMPT
         full = [{"role": "system", "content": system_prompt}] + messages
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=full,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            stream=True,
-        )
-        for chunk in response:
-            delta = chunk.choices[0].delta
-            content = delta.content if hasattr(delta, "content") else delta.get("content")
-            if content:
-                yield content
+
+        t0 = time.perf_counter()
+        rid = get_request_id()      # 生成器开头捕获，理由同 generate_stream
+        ttft_ms = None
+        n_chunks = 0
+        n_chars = 0
+        completed = False
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=full,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=True,
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta
+                content = delta.content if hasattr(delta, "content") else delta.get("content")
+                if content:
+                    if ttft_ms is None:
+                        ttft_ms = (time.perf_counter() - t0) * 1000
+                    n_chunks += 1
+                    n_chars += len(content)
+                    yield content
+            completed = True
+        except Exception:
+            logger.bind(model=self.model).opt(exception=True).warning(
+                "[llm] console_stream 失败 | model={} | turns={} | elapsed={:.0f}ms",
+                self.model, len(messages), (time.perf_counter() - t0) * 1000,
+            )
+            raise
+        finally:
+            logger.bind(request_id=rid, model=self.model).info(
+                "[llm] console_stream | model={} | ttft={} | elapsed={:.0f}ms | "
+                "chunks={} chars={} completed={}",
+                self.model,
+                f"{ttft_ms:.0f}ms" if ttft_ms is not None else "-",
+                (time.perf_counter() - t0) * 1000,
+                n_chunks, n_chars, completed,
+            )

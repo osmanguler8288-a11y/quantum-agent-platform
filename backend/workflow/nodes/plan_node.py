@@ -1,4 +1,5 @@
 from agent.state import AgentState
+from app.utils.logger import logger
 
 
 def make_plan_node(planner):
@@ -22,6 +23,6 @@ def make_plan_node(planner):
 
         state["thinking"] = ag_state.thinking
         state["plan"] = ag_state.plan
-        print(f"[workflow] plan: {len(ag_state.plan)} steps, thinking: {len(ag_state.thinking)} chars")
+        logger.info("[workflow] plan: {} steps, thinking: {} chars", len(ag_state.plan), len(ag_state.thinking))
         return state
     return plan_node

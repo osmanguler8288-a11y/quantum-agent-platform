@@ -10,6 +10,7 @@ MCP Client — 统一工具调用入口
 """
 
 from tools.tool_register import ToolRegistry
+from app.utils.logger import logger
 
 
 class MCPClient:
@@ -33,7 +34,7 @@ class MCPClient:
     def register_remote(self, tool_name: str, endpoint: str):
         """将某个工具指向远程 MCP server"""
         self._remote_servers[tool_name] = endpoint
-        print(f"[mcp] 注册远程工具: {tool_name} → {endpoint}")
+        logger.info("[mcp] 注册远程工具: {} → {}", tool_name, endpoint)
 
     # ─── 主入口 ──────────────────────────────────────
     def call(self, tool_name: str, params: dict) -> dict:

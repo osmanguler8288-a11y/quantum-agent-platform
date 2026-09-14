@@ -1,4 +1,5 @@
 from agent.state import AgentState
+from app.utils.logger import logger
 
 
 def make_exec_node(executor):
@@ -17,6 +18,6 @@ def make_exec_node(executor):
         state["current_step"] = ag_state.current_step
         state["retry_count"] = state.get("retry_count", 0)
 
-        print(f"[workflow] exec: {len(ag_state.results)} results, status={ag_state.status.value}")
+        logger.info("[workflow] exec: {} results, status={}", len(ag_state.results), ag_state.status.value)
         return state
     return exec_node

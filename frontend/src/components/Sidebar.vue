@@ -13,19 +13,28 @@
       <ConversationList :collapsed="collapsed" />
     </div>
 
-    <!-- 底部：知识库 / 工具 / 记忆 / 设置 / 账户 -->
+    <!-- 底部：对话 / 知识库 / 技能 / 工具 / 记忆 / 设置 / 账户 -->
     <div class="bottom">
-      <button class="nav-item" title="知识库" @click="showKnowledge = true">
+      <button
+        class="nav-item"
+        :class="{ active: isConversations }"
+        title="对话管理"
+        @click="onConversations"
+      >
+        <span class="icon">💬</span>
+        <span v-if="!collapsed" class="label">对话</span>
+      </button>
+      <button class="nav-item" :class="{ active: isKnowledge }" title="知识库" @click="onKnowledge">
         <span class="icon">▤</span>
         <span v-if="!collapsed" class="label">知识库</span>
       </button>
-      <button class="nav-item" title="技能" @click="showSkills = true">
+      <button class="nav-item" :class="{ active: isSkills }" title="技能" @click="onSkills">
         <span class="icon">✦</span>
         <span v-if="!collapsed" class="label">技能</span>
       </button>
-      <button class="nav-item" title="工具清单" @click="onTools">
+      <button class="nav-item" :class="{ active: isTools }" title="工具库" @click="onTools">
         <span class="icon">⚒</span>
-        <span v-if="!collapsed" class="label">工具清单</span>
+        <span v-if="!collapsed" class="label">工具库</span>
       </button>
       <button class="nav-item" title="记忆中心" @click="$emit('show-memory')">
         <span class="icon">◉</span>
@@ -43,22 +52,28 @@
       </div>
     </div>
 
-    <ConfigModal :visible="showKnowledge" mode="knowledge" @close="showKnowledge = false" />
     <ConfigModal :visible="showSettings" mode="settings" @close="showSettings = false" />
-    <SkillPanel :visible="showSkills" @close="showSkills = false" />
   </aside>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import ConversationList from './sidebar/ConversationList.vue'
 import ConfigModal from './sidebar/ConfigModal.vue'
-import SkillPanel from './SkillPanel.vue'
 
 defineEmits<{ (e: 'show-memory'): void; (e: 'logout'): void }>()
 
+const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
+
+// 工具库 / 知识库 / 对话管理 / 技能中心是独立路由页，其余入口仍是当前页的弹窗
+const isTools = computed(() => route.name === 'tools')
+const isKnowledge = computed(() => route.name === 'knowledge')
+const isConversations = computed(() => route.name === 'conversations')
+const isSkills = computed(() => route.name === 'skills')
 
 const COLLAPSE_KEY = 'qap_sidebar_collapsed'
 const collapsed = ref(localStorage.getItem(COLLAPSE_KEY) === '1')
@@ -66,8 +81,6 @@ const collapsed = ref(localStorage.getItem(COLLAPSE_KEY) === '1')
 const username = computed(() => auth.user?.username || 'guest')
 const initial = computed(() => (username.value[0] || 'G').toUpperCase())
 
-const showKnowledge = ref(false)
-const showSkills = ref(false)
 const showSettings = ref(false)
 
 function toggle() {
@@ -76,7 +89,19 @@ function toggle() {
 }
 
 function onTools() {
-  alert('工具清单（mock 占位，联调后接 GET /api/tools）')
+  if (route.name !== 'tools') router.push({ name: 'tools' })
+}
+
+function onKnowledge() {
+  if (route.name !== 'knowledge') router.push({ name: 'knowledge' })
+}
+
+function onConversations() {
+  if (route.name !== 'conversations') router.push({ name: 'conversations' })
+}
+
+function onSkills() {
+  if (route.name !== 'skills') router.push({ name: 'skills' })
 }
 </script>
 
@@ -175,6 +200,14 @@ function onTools() {
 }
 .nav-item:hover {
   background: #f5f5f4;
+}
+.nav-item.active {
+  background: var(--orange-light);
+  color: var(--orange-hover);
+  font-weight: 600;
+}
+.nav-item.active .icon {
+  color: var(--orange);
 }
 .sidebar.collapsed .nav-item {
   justify-content: center;

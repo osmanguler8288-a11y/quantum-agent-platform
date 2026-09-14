@@ -3,6 +3,7 @@ from docx import Document as DocxDocument
 from rag.chunker import Chunker
 from rag.embedder import Embedder
 from rag.vector_db import MilvusClient
+from app.utils.logger import logger
 
 
 def extract_pdf_text(path: str) -> str:
@@ -46,7 +47,7 @@ def ingest_documents(file_paths: list[str], chunker: Chunker,
     for path in file_paths:
         text = read_file(path)
         if not text.strip():
-            print(f"[ingest] 警告: {path} 提取内容为空，跳过")
+            logger.warning("[ingest] 警告: {} 提取内容为空，跳过", path)
             continue
 
         chunks = chunker.chunk(text)
@@ -57,4 +58,4 @@ def ingest_documents(file_paths: list[str], chunker: Chunker,
             for i in range(len(chunks))
         ]
         vector_db.insert(embeddings, metadata)
-        print(f"[ingest] {path}: {len(chunks)} 块入库完成")
+        logger.info("[ingest] {}: {} 块入库完成", path, len(chunks))

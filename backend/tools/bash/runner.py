@@ -9,6 +9,7 @@ Bash 工具 — Agent 最基础的操作能力
 
 import subprocess
 import os
+from app.utils.logger import logger
 
 # 项目根目录，所有 bash 命令默认在此执行
 PROJECT_ROOT = os.path.abspath(
@@ -39,7 +40,7 @@ def run_bash(command: str, cwd: str = None, timeout: int = 300) -> str:
     # 高危命令告警
     for pattern in _DANGEROUS_PATTERNS:
         if pattern in command:
-            print(f"[bash] [WARN] dangerous pattern: '{pattern}'")
+            logger.warning("[bash] [WARN] dangerous pattern: '{}'", pattern)
 
     try:
         result = subprocess.run(

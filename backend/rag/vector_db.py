@@ -1,6 +1,7 @@
 import pymilvus
 from pymilvus import MilvusClient as _MilvusClient
 from config.settings import settings
+from app.utils.logger import logger
 
 # BGE-large-zh-v1.5 输出 1024 维
 VECTOR_DIM = settings.EMBED_DIM
@@ -24,10 +25,10 @@ class MilvusClient:
 
             self.client.load_collection(COLLECTION_NAME)
             self._available = True
-            print(f"[milvus] 已连接 {host}:{port}")
+            logger.info("[milvus] 已连接 {}:{}", host, port)
         except (pymilvus.exceptions.MilvusException, ConnectionError, TimeoutError) as e:
-            print(f"[milvus] [WARN] Milvus 未启动，RAG 检索不可用。启动方式：docker-compose up -d standalone")
-            print(f"[milvus]  原因: {e}")
+            logger.warning("[milvus] Milvus 未启动，RAG 检索不可用。启动方式：docker-compose up -d standalone")
+            logger.warning("[milvus]  原因: {}", e)
 
     @property
     def available(self) -> bool:
@@ -46,7 +47,7 @@ class MilvusClient:
                 {"name": "chunk_idx", "type": "INT64"},
             ],
         )
-        print(f"[milvus] Collection '{COLLECTION_NAME}' 已创建")
+        logger.info("[milvus] Collection '{}' 已创建", COLLECTION_NAME)
 
     # ─── 写入向量 ───
     def insert(self, vectors: list[list[float]], metadata: list[dict]):
@@ -63,7 +64,7 @@ class MilvusClient:
             })
 
         self.client.insert(COLLECTION_NAME, rows)
-        print(f"[milvus] 写入 {len(rows)} 条向量")
+        logger.info("[milvus] 写入 {} 条向量", len(rows))
 
     # ─── 搜索最相似的向量 ───
     def search(self, vector: list[float], top_k: int = 5) -> list[dict]:

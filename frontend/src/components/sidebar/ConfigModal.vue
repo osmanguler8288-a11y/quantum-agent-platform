@@ -30,7 +30,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 
-type Mode = 'knowledge' | 'settings'
+type Mode = 'settings'
 
 const props = defineProps<{ visible: boolean; mode: Mode }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -49,21 +49,17 @@ interface ConfigDef {
 }
 
 const DEFS: Record<Mode, ConfigDef> = {
-  knowledge: {
-    title: '知识库配置',
-    hint: '配置 RAG 知识库接入，当前为占位（联调后生效）',
-    fields: [
-      { key: 'url', label: '知识库服务 URL', placeholder: 'https://...' },
-      { key: 'apiKey', label: '知识库 API Key', placeholder: 'sk-...', secret: true },
-    ],
-  },
+  // 知识库原先是独立入口（RAG 服务 URL / API Key 占位），
+  // 知识库改为独立页面后，RAG 服务配置并入设置
   settings: {
     title: '设置',
-    hint: '配置默认 LLM 服务，当前为占位（联调后生效）',
+    hint: '配置默认 LLM 与 RAG 知识库服务，当前为占位（联调后生效）',
     fields: [
       { key: 'url', label: 'LLM 服务 URL', placeholder: 'https://api.deepseek.com' },
       { key: 'apiKey', label: 'LLM API Key', placeholder: 'sk-...', secret: true },
       { key: 'model', label: '模型名称', placeholder: 'deepseek-chat' },
+      { key: 'ragUrl', label: '知识库（RAG）服务 URL', placeholder: 'https://...' },
+      { key: 'ragApiKey', label: '知识库 API Key', placeholder: 'sk-...', secret: true },
     ],
   },
 }
