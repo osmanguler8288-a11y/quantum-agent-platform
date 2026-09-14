@@ -3,7 +3,14 @@ import { useAuthStore } from '@/stores/auth'
 // 是否使用 mock（默认 true，联调时设 VITE_USE_MOCK=false）
 export const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
 
-function authHeaders(headers: Record<string, string> = {}): Record<string, string> {
+/**
+ * 构造带认证信息的请求头。
+ *
+ * ⚠️ 导出的目的是让**所有**发请求的地方都走这里，包括不能用 `request()` 的 SSE：
+ *    sse.ts 需要自己 fetch + ReadableStream，此前它手写 headers，漏掉了 X-User-ID，
+ *    导致对话链路的日志与工具调用埋点全部被记成 default_user。
+ */
+export function authHeaders(headers: Record<string, string> = {}): Record<string, string> {
   const auth = useAuthStore()
   if (auth.token) {
     headers['Authorization'] = 'Bearer ' + auth.token

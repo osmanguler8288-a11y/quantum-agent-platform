@@ -6,19 +6,20 @@ const TOKEN_KEY = 'qap_token'
 const USER_KEY = 'qap_user'
 
 /**
- * ⚠️ 认证的特殊性（联调期间必读）
+ * 认证说明（改之前先读）
  *
- * 后端**目前没有 /api/auth/* 接口** —— 认证的设计是由 Go 网关校验 JWT 后
- * 向下游注入 `X-User-ID` header，FastAPI 侧不做登录。所以：
+ * 认证接口不在 FastAPI 上，而在 **Go 网关**（:8080）。链路由 vite 代理分流：
  *
- *   - 游客模式：**永远本地构造**，不请求后端。它不该受 VITE_USE_MOCK 影响，
- *     否则一关 mock 就登录不进去（表现为 404 /api/auth/guest）。
- *   - 账号登录 / 注册：需要真实的 Go 网关，当前环境调用会 404。
- *     这里给出明确提示，而不是抛一个看不懂的网络错误。
+ *     /api/auth/*  → Go 网关 :8080   ← 本文件调的接口
+ *     /api/*       → FastAPI :8001
  *
- * 将来 Go 网关就位后，把 login/register 的实现接上即可，guest 可保留为本地体验入口。
+ * 所以本文件正常工作有两个前提：
+ *   1. Go 网关在跑（backend/start-dev.ps1 会一起启动）
+ *   2. [vite.config.ts] 里的 '/api/auth' 分流规则在 '/api' 之前 —— 少了它就会 404
+ *
+ * 网关校验 JWT 后向下游注入 X-User-ID/[X-Username]，FastAPI 侧不再做任何鉴权。
  */
-const AUTH_BACKEND_READY = false
+const AUTH_BACKEND_READY = true
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -55,8 +56,15 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async guest() {
-      // 始终本地构造游客身份 —— 后端没有认证接口，见文件顶部说明
-      this._persist('guest-local-token', { id: 0, username: 'guest', email: '' })
+      // 优先走网关拿真实 JWT（这样 token 能通过后续接口的校验）；
+      // 网关没起时退回本地构造，保证前端单独跑也能进得去。
+      try {
+        const data = await apiPost<{ token: string; user: User }>('/api/auth/guest', {})
+        this._persist(data.token, data.user)
+      } catch {
+        console.warn('[auth] 网关不可用，游客模式退回本地身份（受保护接口会 401）')
+        this._persist('guest-local-token', { id: 0, username: 'guest', email: '' })
+      }
     },
 
     logout() {

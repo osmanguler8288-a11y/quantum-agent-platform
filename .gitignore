@@ -15,6 +15,12 @@ volumes/
 # 本地 AI 工具的工作目录（含二进制路径与工具自身记忆），非项目源码
 .workbuddy/
 
+# Go 网关构建产物（start-dev.ps1 会自动编译）
+# 注意: backend/auth/auth 是历史上提交过的 macOS ARM64 二进制，已在版本控制中，
+#       需要 git rm --cached 才能停止跟踪（.gitignore 对已跟踪文件无效）
+backend/auth/auth.exe
+backend/auth/auth
+
 # Gaussian / 量化计算测试残留
 *.gjf
 *.log
