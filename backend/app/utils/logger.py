@@ -183,7 +183,7 @@ def _patch_record(record) -> None:
 
 
 class InterceptHandler(logging.Handler):
-    """把标准库 logging 桥接到 loguru（接管现存 llmops/tools 的 logging）。"""
+    """把标准库 logging 桥接到 loguru（接管第三方库与残留的 stdlib logging）。"""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
