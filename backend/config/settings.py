@@ -28,6 +28,10 @@ class Settings:
     # Milvus
     MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
     MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
+    # 小内存单机可用 Milvus Lite 文件；留空时仍连接独立 Milvus 服务。
+    # MILVUS_URI 是 pymilvus ORM 的保留环境变量，只接受远程地址；
+    # 本项目使用独立前缀，避免 SDK import 时把 Lite 文件路径误当 HTTP URI。
+    MILVUS_URI = os.getenv("QAP_MILVUS_URI", "")
 
     # ---------- EqV2 31M 机器学习势函数服务 ----------
     # 远程推理服务（HTTP + Bearer Key），提供单点能/受力预测与异步几何优化。

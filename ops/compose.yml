@@ -1,0 +1,84 @@
+name: quantum-agent-platform
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    mem_limit: 384m
+    environment:
+      MYSQL_ROOT_PASSWORD: ${QAP_MYSQL_ROOT_PASSWORD:?required}
+      MYSQL_DATABASE: quantum_auth
+      MYSQL_USER: qap
+      MYSQL_PASSWORD: ${QAP_MYSQL_PASSWORD:?required}
+    command: ["--innodb-buffer-pool-size=64M", "--performance-schema=OFF", "--max-connections=30", "--innodb-log-buffer-size=8M"]
+    volumes:
+      - /opt/quantum-agent-platform/shared/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 96m
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "48mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - /opt/quantum-agent-platform/shared/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  app:
+    image: qap-backend:${QAP_RELEASE:?required}
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.backend
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    env_file:
+      - /opt/quantum-agent-platform/shared/app.env
+    environment:
+      REDIS_HOST: redis
+      QAP_MILVUS_URI: /app/data/vectors/milvus.db
+      SQLITE_PATH: /app/data/qap.db
+      LOG_DIR: /app/logs
+      LOG_LEVEL: INFO
+      EQV2_API_BASE_URL: http://host.docker.internal:8888
+      EQV2_DATA_DIR: /app/data/eqv2
+      ATTACHMENT_DATA_DIR: /app/data/attachments
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - /opt/quantum-agent-platform/shared/data:/app/data
+      - /opt/quantum-agent-platform/shared/logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/server', timeout=5)"]
+      interval: 10s
+      start_period: 60s
+      timeout: 6s
+      retries: 12
+  auth:
+    image: qap-auth:${QAP_RELEASE:?required}
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.auth
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      MYSQL_DSN: qap:${QAP_MYSQL_PASSWORD:?required}@tcp(mysql:3306)/quantum_auth?parseTime=true
+      JWT_SECRET: ${QAP_JWT_SECRET:?required}
+      BACKEND_URL: http://app:8000
+      SKIP_AUTH: "false"
+      GATEWAY_PORT: "9000"
+    ports:
+      - 127.0.0.1:19000:9000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_healthy

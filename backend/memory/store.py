@@ -37,7 +37,7 @@ class MilvusStore:
         self._available = False
         host = settings.MILVUS_HOST
         port = settings.MILVUS_PORT
-        uri = f"http://{host}:{port}"
+        uri = settings.MILVUS_URI or f"http://{host}:{port}"
 
         try:
             self.client = _MilvusClient(uri=uri, timeout=5)
@@ -45,7 +45,7 @@ class MilvusStore:
                 self._create_collection()
             self.client.load_collection(self.config.milvus_collection)
             self._available = True
-            logger.info("[memory-store] 已连接 Milvus {}:{}, collection={}", host, port, self.config.milvus_collection)
+            logger.info("[memory-store] 已连接 Milvus {}, collection={}", uri, self.config.milvus_collection)
         except (pymilvus.exceptions.MilvusException, ConnectionError, TimeoutError) as e:
             logger.warning("[memory-store] Milvus 未启动，长期记忆不可用: {}", e)
 
@@ -78,9 +78,9 @@ class MilvusStore:
         index_params = self.client.prepare_index_params()
         index_params.add_index(
             field_name="vector",
-            index_type="IVF_FLAT",
+            index_type="FLAT" if settings.MILVUS_URI.endswith(".db") else "IVF_FLAT",
             metric_type="COSINE",
-            params={"nlist": 128},
+            params={} if settings.MILVUS_URI.endswith(".db") else {"nlist": 128},
         )
         self.client.create_index(
             collection_name=self.config.milvus_collection,

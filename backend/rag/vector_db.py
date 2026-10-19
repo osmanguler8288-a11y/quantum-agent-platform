@@ -14,7 +14,7 @@ class MilvusClient:
     def __init__(self, host: str = None, port: int = None):
         host = host or settings.MILVUS_HOST
         port = port or settings.MILVUS_PORT
-        uri = f"http://{host}:{port}"
+        uri = settings.MILVUS_URI or f"http://{host}:{port}"
 
         self._available = False
         try:
@@ -25,7 +25,7 @@ class MilvusClient:
 
             self.client.load_collection(COLLECTION_NAME)
             self._available = True
-            logger.info("[milvus] 已连接 {}:{}", host, port)
+            logger.info("[milvus] 已连接 {}", uri)
         except (pymilvus.exceptions.MilvusException, ConnectionError, TimeoutError) as e:
             logger.warning("[milvus] Milvus 未启动，RAG 检索不可用。启动方式：docker-compose up -d standalone")
             logger.warning("[milvus]  原因: {}", e)

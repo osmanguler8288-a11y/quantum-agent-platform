@@ -8,6 +8,10 @@ LLM 驱动的量子化学自主 Agent 平台。LangGraph 编排 **记忆检索 �
 
 ## 快速开始
 
+### 服务器部署与日常更新
+
+当前服务器入口为 `http://139.196.11.38:8889`。在项目根目录执行 `python ops/deploy.py`，自动构建、上传并通过 Docker Compose 发布；`python ops/deploy.py --rollback` 回滚代码，数据库和附件独立持久化。首次部署及配置说明见 [ops/README.md](ops/README.md)。
+
 ### 一键启动（Docker Compose）
 
 ```bash
@@ -38,7 +42,7 @@ npm install
 npm run dev                   # Vite 开发服务器，默认 http://localhost:5173
 ```
 
-开发模式下前端走 mock 数据（`VITE_USE_MOCK=true`）；联调真实后端时设 `VITE_USE_MOCK=false` 并指向后端地址。
+前端通过 Vite 将 `/api/` 代理到真实 Go 网关，默认 `http://127.0.0.1:9000`；可用 `VITE_GATEWAY_URL` 覆盖。
 
 ---
 
