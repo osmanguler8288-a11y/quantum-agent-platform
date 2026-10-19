@@ -12,10 +12,10 @@
         <details>
           <summary>分析选项</summary>
           <div class="options">
-            <label>Ti 原子编号<input v-model.number="tiIndex" type="number" min="1" max="200" required /></label>
+            <label>Ti 原子编号（可选）<input v-model="tiIndex" type="number" min="1" max="200" placeholder="留空自动识别 Ti" /></label>
             <label>配位 O 编号<input v-model="oxygen" placeholder="例如 8,9；留空自动选择" /></label>
           </div>
-          <p class="hint">原子编号从 1 开始。Ti–O 几何与键级需要对应原子；其他属性取决于文件内容。</p>
+          <p class="hint">默认自动识别唯一 Ti，并选择距离最近的两个 O；有多个 Ti 时请指定编号。没有对应 Ti–O 时，跳过该项键级分析，保留其余结果。原子编号从 1 开始。</p>
           <label class="checkbox"><input v-model="basic" type="checkbox" />仅基础解析（不运行 Multiwfn 电荷和键级分析）</label>
         </details>
         <button class="btn btn-primary" :disabled="submitting || !fchk">
@@ -47,7 +47,7 @@
         </div>
         <table v-if="selected.result?.methods && Object.keys(selected.result.methods).length">
           <thead><tr><th>分析方法</th><th>状态</th></tr></thead>
-          <tbody><tr v-for="(method, name) in selected.result.methods" :key="name"><td>{{ name }}</td><td>{{ method.status }} {{ method.error || '' }}</td></tr></tbody>
+          <tbody><tr v-for="(method, name) in selected.result.methods" :key="name"><td>{{ name }}</td><td>{{ method.status === 'skipped' ? '不适用，已跳过' : method.status }} {{ method.reason || method.error || '' }}</td></tr></tbody>
         </table>
         <table v-if="selected.result?.descriptors">
           <thead><tr><th>描述符</th><th>值（单位见字段名及结果文件）</th></tr></thead>
@@ -73,7 +73,7 @@ const fchk = ref<File>()
 const out = ref<File>()
 const fchkInput = ref<HTMLInputElement>()
 const outInput = ref<HTMLInputElement>()
-const tiIndex = ref(1)
+const tiIndex = ref('')
 const oxygen = ref('')
 const basic = ref(false)
 const submitting = ref(false)
@@ -159,7 +159,7 @@ async function submit() {
   submitting.value = true
   error.value = ''
   try {
-    remember(await submitDescriptorJob(fchk.value, out.value, tiIndex.value, oxygen.value, basic.value))
+    remember(await submitDescriptorJob(fchk.value, out.value, tiIndex.value ? Number(tiIndex.value) : 0, oxygen.value, basic.value))
     clearFiles()
   } catch (e) {
     if (e instanceof DescriptorApiError && e.job) {

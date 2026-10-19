@@ -54,7 +54,9 @@ npm run dev                   # Vite 开发服务器，默认 http://localhost:5
 
 每个文件最多 40 MB，合计最多 64 MB；描述符任务和文件按网关注入的用户身份隔离。生产 Nginx 的描述符上传入口单独放宽请求体限制。原结构上传与 EqV2 预测/优化流程保持独立。
 
-离线检查（从 `backend/` 运行）：`python -m unittest discover -s tests -p test_descriptors.py -v`。
+Ti 原子默认从 FCHK 中自动识别，只有一个 Ti 时无需填写编号；多个 Ti 时要求指定，手动编号必须指向 Ti。O 默认选择距该 Ti 最近的两个 O，手动编号必须对应两个不同 O。没有适用 Ti–O 原子对时，Mayer 标为“不适用，已跳过”，不算分析失败。独立计算服务及旧任务恢复说明见 [ops/descriptor_service/README.md](ops/descriptor_service/README.md)。
+
+离线检查（从 `backend/` 运行）：`python -m unittest discover -s tests -p 'test_descriptor*.py' -v`。
 
 ## 架构
 

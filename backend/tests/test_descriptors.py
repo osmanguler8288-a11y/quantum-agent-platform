@@ -17,7 +17,12 @@ from config.settings import settings
 from tools.multiwfn.client import DescriptorClient, DescriptorServiceError
 
 REMOTE_ID = '99a25d11-b635-456c-940d-2b8427c6ff0c'
-SOURCE = b'Original wavefunction\r\nNumber of atoms I 3\r\n\xff\x00'
+def fchk_source(numbers):
+    return (f"Original wavefunction\r\n{'Atomic numbers':<43}I   N= {len(numbers)}\r\n" +
+            ' '.join(map(str, numbers)) + '\r\n').encode()
+
+
+SOURCE = fchk_source([22, 8, 8]) + b'Original trailing bytes\r\n\xff\x00'
 
 
 class Download:
@@ -39,10 +44,12 @@ class FakeService:
         self.polls = 0
         self.failure = None
         self.received = {}
+        self.parameters = None
 
     def submit(self, sources, ti_index, o_indices, methods):
         self.submissions += 1
         self.received = {key: (name, path.read_bytes()) for key, (name, path) in sources.items()}
+        self.parameters = (ti_index, o_indices, methods)
         if self.failure:
             raise self.failure
         return {'job_id': REMOTE_ID, 'status': 'queued'}
@@ -140,10 +147,31 @@ class DescriptorRoutesTests(unittest.TestCase):
         for files in [{'fchk': ('binary.chk', SOURCE)}, {'fchk': ('empty.fchk', b'')},
                       {'fchk': ('valid.fch', SOURCE), 'out': ('wrong.txt', b'x')}]:
             self.assertEqual(self.submit(files=files).status_code, 422)
-        for data in [{'ti_index': 0}, {'o_indices': '1,1'}, {'methods': 'basic,mayer'}, {'methods': 'unknown'}]:
+        for data in [{'ti_index': -1}, {'o_indices': '1,1'}, {'methods': 'basic,mayer'}, {'methods': 'unknown'}]:
             self.assertEqual(self.submit(data=data).status_code, 400)
         self.assertEqual(list(Path(self.temp.name).iterdir()), [])
         self.assertEqual(self.service.submissions, 0)
+
+    def test_auto_selects_titanium_away_from_first_atom(self):
+        response = self.submit(files={'fchk': ('moved.fchk', fchk_source([6, 8, 22, 8]))})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()['ti_index'], 3)
+        self.assertEqual(self.service.parameters[0], 3)
+
+    def test_multiple_titaniums_require_selection_and_manual_index_must_be_ti(self):
+        source = fchk_source([6, 22, 8, 22, 8])
+        for data in [{}, {'ti_index': 1}, {'ti_index': 2, 'o_indices': '1,3'}]:
+            response = self.submit(files={'fchk': ('multi.fchk', source)}, data=data)
+            self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.service.submissions, 0)
+        response = self.submit(files={'fchk': ('multi.fchk', source)}, data={'ti_index': 4, 'o_indices': '3,5'})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.service.parameters[:2], (4, '3,5'))
+
+    def test_no_titanium_is_forwarded_as_auto_without_false_first_atom(self):
+        response = self.submit(files={'fchk': ('ligand.fchk', fchk_source([6, 8, 8]))})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.service.parameters[0], 0)
 
     def test_file_and_combined_limits(self):
         with patch.object(routes, 'MAX_FILE', 10), patch.object(routes, 'MAX_TOTAL', 14):

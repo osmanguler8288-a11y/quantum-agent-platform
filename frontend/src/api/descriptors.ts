@@ -10,7 +10,7 @@ export interface DescriptorJob {
   failed_methods?: string[]
   result?: {
     descriptors?: Record<string, unknown>
-    methods?: Record<string, { status: string; error?: string }>
+    methods?: Record<string, { status: string; error?: string; reason?: string }>
     units?: Record<string, string>
   }
 }

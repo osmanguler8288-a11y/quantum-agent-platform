@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from config.settings import settings
 from tools.multiwfn.client import DescriptorClient, DescriptorServiceError
+from tools.multiwfn.atom_selection import read_atomic_numbers, select_titanium, validate_oxygens
 
 router = APIRouter()
 MAX_FILE = 40 * 1024 * 1024
@@ -85,7 +86,7 @@ def list_jobs(request: Request):
 
 @router.post('')
 def submit(request: Request, fchk: UploadFile = File(...), out: UploadFile | None = File(None),
-           ti_index: int = Form(1), o_indices: str = Form(''),
+           ti_index: int = Form(0), o_indices: str = Form(''),
            methods: str = Form('hirshfeld,cm5,chelpg,mayer')):
     user = _owner(request)
     if user is None:
@@ -93,8 +94,8 @@ def submit(request: Request, fchk: UploadFile = File(...), out: UploadFile | Non
     chosen = methods.split(',')
     if not chosen or len(chosen) != len(set(chosen)) or not set(chosen) <= {'basic', 'hirshfeld', 'cm5', 'chelpg', 'mayer'} or ('basic' in chosen and len(chosen) != 1):
         return _error('请选择基础解析或有效的 Multiwfn 分析方法')
-    if not 1 <= ti_index <= 200:
-        return _error('Ti 原子编号应在 1–200 之间')
+    if not 0 <= ti_index <= 200:
+        return _error('Ti 原子编号应在 1–200 之间；0 表示自动识别')
     if o_indices:
         if not re.fullmatch(r'\d+,\d+', o_indices):
             return _error('O 原子编号应为两个以逗号分隔的整数，例如 8,9')
@@ -129,6 +130,9 @@ def submit(request: Request, fchk: UploadFile = File(...), out: UploadFile | Non
                 raise ValueError('上传文件不能为空')
             sources[kind] = (name, path)
             uploads[kind] = {'filename': name, 'size': size, 'stored_name': path.name}
+        numbers = read_atomic_numbers(sources['fchk'][1])
+        ti_index = select_titanium(numbers, ti_index) or 0
+        validate_oxygens(numbers, ti_index or None, [int(i) for i in o_indices.split(',')] if o_indices else None)
     except (ValueError, OverflowError) as exc:
         shutil.rmtree(folder)
         return _error(str(exc), 413 if isinstance(exc, OverflowError) else 422)
