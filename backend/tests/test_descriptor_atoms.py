@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from tools.multiwfn import atom_selection
 
@@ -104,7 +104,7 @@ class RecoveryTests(unittest.TestCase):
             (remote / 'summary.csv').write_text('old remote csv')
             (local / 'summary.csv').write_text('old cached csv')
             with patch.object(extractor, 'run_mw', side_effect=AssertionError('must not recompute')):
-                recovery.repair(job_id, root / 'remote', root / 'platform')
+                recovery.repair(UUID(job_id), root / 'remote', root / 'platform')
                 self.assertTrue(json.loads((remote / 'status.json').read_text())['partial'])
                 recovery.repair(job_id, root / 'remote', root / 'platform', apply=True)
             repaired = json.loads((local / 'job.json').read_text())

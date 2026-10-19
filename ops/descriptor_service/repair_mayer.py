@@ -21,7 +21,7 @@ def write_json(path, value):
 
 
 def repair(job_id, jobs_root, platform_root, apply=False):
-    job_id = str(UUID(job_id))
+    job_id = str(UUID(str(job_id)))
     directory = Path(jobs_root) / job_id
     state = json.loads((directory / 'status.json').read_text(encoding='utf-8'))
     result = json.loads((directory / 'descriptors.json').read_text(encoding='utf-8'))
