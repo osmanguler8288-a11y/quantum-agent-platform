@@ -1,9 +1,7 @@
 import { defineStore } from 'pinia'
 import type { ChatMessage, MessageBlock, PlanStep, SSEEvent, ToolResult } from '@/types'
-import { USE_MOCK } from '@/api/client'
 import { fetchConversationMessages } from '@/api/conversation'
 import { streamWorkflow } from '@/api/sse'
-import { mockEventStream } from '@/api/mock'
 import { useConversationStore } from '@/stores/conversation'
 import { useSessionStore } from '@/stores/session'
 
@@ -57,27 +55,12 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /**
-     * 切换历史会话：拉取**真实的**消息并回填。
-     *
-     * 以前这里是 mock —— 只塞两条占位文本，点了历史对话看不到任何真实内容。
-     * 现在走 GET /api/conversations/{id}/messages。
-     */
+    /** 切换历史会话：拉取真实消息并回填（GET /api/conversations/{id}/messages）。 */
     async loadConversation(id: string) {
       const session = useSessionStore()
       session.setSession(id)
       useConversationStore().switchTo(id)
       this.messages = []
-
-      if (USE_MOCK) {
-        this.messages.push({ id: genId(), role: 'user', blocks: [{ type: 'text', text: '（mock）历史对话' }] })
-        this.messages.push({
-          id: genId(),
-          role: 'assistant',
-          blocks: [{ type: 'thinking', text: '（mock）该会话历史记录将在联调后从后端加载' }],
-        })
-        return
-      }
 
       try {
         const page = await fetchConversationMessages(id)
@@ -118,19 +101,13 @@ export const useChatStore = defineStore('chat', {
       const onEvent = (ev: SSEEvent) => this._applyEvent(assistant, ev, session, query)
 
       try {
-        if (USE_MOCK) {
-          for await (const ev of mockEventStream(query)) {
-            onEvent(ev)
-          }
-        } else {
-          // 先拿会话 id 再发消息 —— 这样第一轮就是带归属的，
-          // 而不是等后端兜底建一条再回头补 id
-          const conversationId = await this.ensureConversation(query)
-          await streamWorkflow(
-            { input_data: { user_query: query, ...(structure ? { structure } : {}) }, session_id: conversationId },
-            onEvent,
-          )
-        }
+        // 先拿会话 id 再发消息 —— 这样第一轮就是带归属的，
+        // 而不是等后端兜底建一条再回头补 id
+        const conversationId = await this.ensureConversation(query)
+        await streamWorkflow(
+          { input_data: { user_query: query, ...(structure ? { structure } : {}) }, session_id: conversationId },
+          onEvent,
+        )
       } catch (e) {
         assistant.blocks.push({ type: 'error', message: (e as Error).message })
       } finally {

@@ -1,8 +1,5 @@
 import { useAuthStore } from '@/stores/auth'
 
-// 是否使用 mock（默认 true，联调时设 VITE_USE_MOCK=false）
-export const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
-
 /**
  * 构造带认证信息的请求头。
  *

@@ -18,16 +18,19 @@
       </div>
 
       <div class="list">
-        <div v-if="filtered.length === 0" class="empty">暂无记忆，多对话几轮自动积累</div>
-
-        <div v-for="(m, i) in filtered" :key="m.id || i" class="item">
-          <div class="item-top">
-            <span class="type-badge" :class="m.type">{{ typeLabels[m.type] }}</span>
-            <span class="imp">重要性 {{ m.importance.toFixed(2) }}</span>
-            <span class="ts">{{ formatTime(m.timestamp) }}</span>
+        <div v-if="loading" class="empty">加载中…</div>
+        <div v-else-if="error" class="empty">{{ error }}</div>
+        <div v-else-if="filtered.length === 0" class="empty">暂无记忆，多对话几轮自动积累</div>
+        <template v-else>
+          <div v-for="(m, i) in filtered" :key="m.id || i" class="item">
+            <div class="item-top">
+              <span class="type-badge" :class="m.type">{{ typeLabels[m.type] }}</span>
+              <span class="imp">重要性 {{ m.importance.toFixed(2) }}</span>
+              <span class="ts">{{ formatTime(m.timestamp) }}</span>
+            </div>
+            <div class="content">{{ m.content }}</div>
           </div>
-          <div class="content">{{ m.content }}</div>
-        </div>
+        </template>
       </div>
 
       <div class="modal-footer">
@@ -40,13 +43,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { apiGet, apiPost } from '@/api/client'
 import type { MemoryItem, MemoryType } from '@/types'
 
-defineProps<{ visible: boolean }>()
+const props = defineProps<{ visible: boolean }>()
 defineEmits<{ (e: 'close'): void }>()
 
 const filter = ref<MemoryType | 'all'>('all')
+const items = ref<MemoryItem[]>([])
+const loading = ref(false)
+const error = ref('')
 
 const filterTypes: { value: MemoryType | 'all'; label: string }[] = [
   { value: 'all', label: '全部' },
@@ -63,13 +70,35 @@ const typeLabels: Record<MemoryType, string> = {
   perceptual: '感知',
 }
 
-// mock 记忆数据（联调时替换为 GET /api/workflow/history）
-const items = ref<MemoryItem[]>([
-  { id: '1', type: 'semantic', content: '用户偏好 B3LYP/6-31G* 基组做有机小分子优化', importance: 0.9, timestamp: '2026-08-15T10:30:00' },
-  { id: '2', type: 'episodic', content: '昨天计算了苯的 HOMO-LUMO，能隙 6.0 eV', importance: 0.7, timestamp: '2026-08-15T14:20:00' },
-  { id: '3', type: 'working', content: '当前分子：苯（c1ccccc1），方法 B3LYP', importance: 0.6, timestamp: '2026-08-16T09:00:00' },
-  { id: '4', type: 'episodic', content: '用户问过 Ni 催化剂的频率分析', importance: 0.4, timestamp: '2026-08-14T16:45:00' },
-])
+interface MemoryDto {
+  id?: string
+  type: MemoryType
+  content: string
+  importance: number
+  timestamp?: string
+}
+
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    const data = await apiGet<{ items?: MemoryDto[] }>('/api/workflow/history')
+    items.value = (data.items ?? []).map((m) => ({
+      id: m.id,
+      type: m.type,
+      content: m.content,
+      importance: m.importance,
+      timestamp: m.timestamp,
+    }))
+  } catch (e) {
+    error.value = (e as Error).message
+    items.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(() => props.visible, (v) => { if (v) load() })
 
 const filtered = computed(() => {
   if (filter.value === 'all') return items.value
@@ -81,12 +110,22 @@ function formatTime(ts?: string): string {
   return ts.replace('T', ' ').slice(0, 16)
 }
 
-function consolidate() {
-  alert('已触发记忆整合（episodic → semantic）')
+async function consolidate() {
+  try {
+    await apiPost('/api/workflow/memory/consolidate', {})
+    await load()
+  } catch (e) {
+    error.value = (e as Error).message
+  }
 }
 
-function forget() {
-  alert('已触发遗忘机制（清理低重要性记忆）')
+async function forget() {
+  try {
+    await apiPost('/api/workflow/memory/forget', {})
+    await load()
+  } catch (e) {
+    error.value = (e as Error).message
+  }
 }
 </script>
 
