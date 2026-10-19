@@ -46,6 +46,16 @@ npm run dev                   # Vite 开发服务器，默认 http://localhost:5
 
 ---
 
+## 波函数文件与描述符分析
+
+聊天输入栏的「波函数分析」提供独立上传入口，接收 `.fchk/.fch`，可附加同一次计算的 `.out/.log`。原文件按原始字节保存在 `backend/data/descriptors/`（可用 `DESCRIPTOR_DATA_DIR` 覆盖），不会转换为 XYZ，也不经过 LLM 规划。
+
+后端使用 `EQV2_API_BASE_URL`、`EQV2_API_KEY` 调用 `/v1/descriptors`，由远程 Multiwfn 服务进行分析。界面每 10 秒查询进度，支持最近任务、部分失败提示、原文件和 JSON/CSV/日志下载；刷新或重新打开窗口后可继续查看。提交连接中断时不会自动重试，原文件和待确认任务记录会保留。
+
+每个文件最多 40 MB，合计最多 64 MB；描述符任务和文件按网关注入的用户身份隔离。生产 Nginx 的描述符上传入口单独放宽请求体限制。原结构上传与 EqV2 预测/优化流程保持独立。
+
+离线检查（从 `backend/` 运行）：`python -m unittest discover -s tests -p test_descriptors.py -v`。
+
 ## 架构
 
 ```

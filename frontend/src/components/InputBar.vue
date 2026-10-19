@@ -9,6 +9,7 @@
       >
         ⌬ 结构
       </button>
+      <button class="struct-btn" title="上传 fchk 文件进行 Multiwfn 描述符分析" @click="showDescriptors = true">波函数分析</button>
       <input
         v-model="query"
         type="text"
@@ -37,6 +38,7 @@
     <SuggestionChips @select="fill" />
 
     <StructureInput :visible="showStructure" @close="showStructure = false" @confirm="onStructure" />
+    <DescriptorAnalysis :visible="showDescriptors" @close="showDescriptors = false" />
   </div>
 </template>
 
@@ -44,6 +46,7 @@
 import { onMounted, ref } from 'vue'
 import SuggestionChips from './SuggestionChips.vue'
 import StructureInput from './StructureInput.vue'
+import DescriptorAnalysis from './DescriptorAnalysis.vue'
 import type { StructurePayload } from '@/types'
 
 const props = defineProps<{ isRunning: boolean }>()
@@ -53,6 +56,7 @@ const emit = defineEmits<{
 
 const query = ref('')
 const showStructure = ref(false)
+const showDescriptors = ref(false)
 const pendingStructure = ref<StructurePayload>()
 
 /**
@@ -186,5 +190,11 @@ function onStructure(s: StructurePayload) {
 .send {
   padding: 12px 22px;
   white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .input-inner { flex-wrap: wrap; }
+  .input-inner input { order: 1; flex-basis: 60%; min-width: 0; }
+  .send { order: 2; }
 }
 </style>

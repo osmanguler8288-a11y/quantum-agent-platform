@@ -70,6 +70,12 @@ class Settings:
     # 同时挡住误传的二进制/大文件。
     ATTACHMENT_MAX_BYTES = int(os.getenv("ATTACHMENT_MAX_BYTES", str(1024 * 1024)))
 
+    # 原始波函数文件、描述符任务记录及下载缓存，与结构附件独立保存。
+    DESCRIPTOR_DATA_DIR = os.getenv(
+        "DESCRIPTOR_DATA_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "descriptors"),
+    )
+
     # RAG
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "512"))
     CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))

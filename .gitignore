@@ -21,6 +21,7 @@ backend/data/eqv2/
 # 用户上传的分子结构附件（解析后的规范 XYZ），非源码
 # ⚠️ 必须显式写目录规则：.xyz 不在下面的量化计算残留列表里
 backend/data/attachments/
+backend/data/descriptors/
 
 # Go 网关构建产物（start-dev.ps1 会自动编译）
 # 注意: backend/auth/auth 是历史上提交过的 macOS ARM64 二进制，已在版本控制中，
