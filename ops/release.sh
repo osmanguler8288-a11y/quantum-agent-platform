@@ -23,7 +23,7 @@ nginx -t
 echo '[deploy] Building versioned images; live services continue running'
 compose "$TARGET" build
 echo '[deploy] Verifying vector and memory storage with temporary data'
-docker run --rm --memory 384m -e PYTHONPATH=/app \
+timeout 180 docker run --rm --name "qap-storage-check-$RELEASE" --memory 768m -e PYTHONPATH=/app \
     -v "$TARGET/ops/check_storage.py:/tmp/check_storage.py:ro" \
     "qap-backend:$RELEASE" python /tmp/check_storage.py
 
