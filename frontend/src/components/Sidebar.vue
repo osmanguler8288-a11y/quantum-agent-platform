@@ -40,10 +40,6 @@
         <span class="icon">◉</span>
         <span v-if="!collapsed" class="label">记忆中心</span>
       </button>
-      <button class="nav-item" title="设置" @click="showSettings = true">
-        <span class="icon">⚙</span>
-        <span v-if="!collapsed" class="label">设置</span>
-      </button>
 
       <div class="user" :class="{ collapsed }">
         <span class="avatar">{{ initial }}</span>
@@ -51,8 +47,6 @@
         <button v-if="!collapsed" class="logout" title="退出登录" @click="$emit('logout')">退出</button>
       </div>
     </div>
-
-    <ConfigModal :visible="showSettings" mode="settings" @close="showSettings = false" />
   </aside>
 </template>
 
@@ -61,7 +55,6 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import ConversationList from './sidebar/ConversationList.vue'
-import ConfigModal from './sidebar/ConfigModal.vue'
 
 defineEmits<{ (e: 'show-memory'): void; (e: 'logout'): void }>()
 
@@ -80,8 +73,6 @@ const collapsed = ref(localStorage.getItem(COLLAPSE_KEY) === '1')
 
 const username = computed(() => auth.user?.username || 'guest')
 const initial = computed(() => (username.value[0] || 'G').toUpperCase())
-
-const showSettings = ref(false)
 
 function toggle() {
   collapsed.value = !collapsed.value
