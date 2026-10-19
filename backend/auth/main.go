@@ -293,6 +293,13 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 
 // ─── 辅助函数 ───
 
+func getEnv(key, def string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return def
+}
+
 func getEnvBool(key string, def bool) bool {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
@@ -350,8 +357,13 @@ func main() {
 		})
 	}
 
-	log.Printf("[auth] 服务启动 :8080 → %s", backendURL)
-	if err := http.ListenAndServe(":8080", http.HandlerFunc(mainHandler)); err != nil {
+	// 监听端口。默认 9000 —— 8080 在开发机上太容易撞车（本机就常年被别的
+	// 服务占着，撞上时网关起不来而旧进程照常回 401，现象极难排查）。
+	// 可用 GATEWAY_PORT 覆盖；start-dev.ps1 的 -GatewayPort 会透传到这里。
+	gatewayPort := getEnv("GATEWAY_PORT", "9000")
+
+	log.Printf("[auth] 服务启动 :%s → %s", gatewayPort, backendURL)
+	if err := http.ListenAndServe(":"+gatewayPort, http.HandlerFunc(mainHandler)); err != nil {
 		log.Fatalf("[auth] 启动失败: %v", err)
 	}
 }

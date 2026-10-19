@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia'
-import type { ChatMessage, MessageBlock, PlanStep, SSEEvent, ToolResult } from '@/types'
+import type {
+  ChatMessage,
+  MessageBlock,
+  PlanStep,
+  SSEEvent,
+  StructurePayload,
+  ToolResult,
+} from '@/types'
 import { USE_MOCK } from '@/api/client'
 import { fetchConversationMessages } from '@/api/conversation'
 import { streamWorkflow } from '@/api/sse'
@@ -17,8 +24,36 @@ export const useChatStore = defineStore('chat', {
   }),
 
   actions: {
-    addUserMessage(text: string) {
-      this.messages.push({ id: genId(), role: 'user', blocks: [{ type: 'text', text }] })
+    /**
+     * 推一条用户消息。`text` 与 `structure` 至少要有一个（调用方守卫）。
+     *
+     * ⚠️ 只挂附件、没打字时不推空的 text 块 —— 别替用户编造他没打的字。
+     *    附件由后端在合成任务串时补上"分析我上传的分子结构"（见 workflow.py），
+     *    那是给 Planner 看的，不是给用户看的。
+     *
+     * ⚠️ 返回值必须是 push 之后由响应式系统包装的那个**代理对象**，
+     *    原因与 submit 里那段注释相同：直接改原始对象不会触发重渲染。
+     */
+    addUserMessage(text: string, structure?: StructurePayload): ChatMessage {
+      const blocks: MessageBlock[] = []
+      if (text) blocks.push({ type: 'text', text })
+      if (structure) {
+        blocks.push({
+          type: 'attachment',
+          filename: structure.filename || 'XYZ 结构',
+          format: structure.format,
+          status: 'pending',
+        })
+      }
+      this.messages.push({ id: genId(), role: 'user', blocks })
+      return this.messages[this.messages.length - 1]
+    },
+
+    /** 在用户消息上找附件块（只可能有一个）。 */
+    _attachmentBlock(msg?: ChatMessage) {
+      return msg?.blocks.find(
+        (b): b is Extract<MessageBlock, { type: 'attachment' }> => b.type === 'attachment',
+      )
     },
 
     clear() {
@@ -99,10 +134,12 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    async submit(query: string, structure?: unknown) {
-      if (!query.trim() || this.isRunning) return
+    async submit(query: string, structure?: StructurePayload) {
+      const text = query.trim()
+      // 只挂附件、没打字也要能发出去
+      if ((!text && !structure) || this.isRunning) return
 
-      this.addUserMessage(query)
+      const userMsg = this.addUserMessage(text, structure)
       this.messages.push({ id: genId(), role: 'assistant', blocks: [] })
       this.isRunning = true
 
@@ -115,19 +152,28 @@ export const useChatStore = defineStore('chat', {
 
       const session = useSessionStore()
 
-      const onEvent = (ev: SSEEvent) => this._applyEvent(assistant, ev, session, query)
+      const onEvent = (ev: SSEEvent) => this._applyEvent(assistant, ev, session, text, userMsg)
 
       try {
         if (USE_MOCK) {
-          for await (const ev of mockEventStream(query)) {
+          for await (const ev of mockEventStream(text)) {
             onEvent(ev)
           }
         } else {
           // 先拿会话 id 再发消息 —— 这样第一轮就是带归属的，
           // 而不是等后端兜底建一条再回头补 id
-          const conversationId = await this.ensureConversation(query)
+          // 标题用文字，没文字就退回文件名（裸附件场景）
+          const conversationId = await this.ensureConversation(
+            text || structure?.filename || '分子结构',
+          )
           await streamWorkflow(
-            { input_data: { user_query: query, ...(structure ? { structure } : {}) }, session_id: conversationId },
+            {
+              input_data: {
+                user_query: text,
+                ...(structure ? { structure } : {}),
+              },
+              session_id: conversationId,
+            },
             onEvent,
           )
         }
@@ -143,6 +189,7 @@ export const useChatStore = defineStore('chat', {
       ev: SSEEvent,
       session: ReturnType<typeof useSessionStore>,
       query = '',
+      userMsg?: ChatMessage,
     ) {
       switch (ev.event) {
         case 'thinking_chunk': {
@@ -202,8 +249,25 @@ export const useChatStore = defineStore('chat', {
           if (id) session.setSession(id)
           break
         }
+        case 'attachment_done': {
+          // 后端已解析、校验并落盘。把 chip 从「解析中…」切成元数据。
+          const block = this._attachmentBlock(userMsg)
+          if (block) {
+            block.status = 'ok'
+            block.natoms = ev.data.natoms
+            block.formula = ev.data.formula
+            block.path = ev.data.path
+          }
+          break
+        }
         case 'error': {
           msg.blocks.push({ type: 'error', message: ev.data.message })
+          // 附件解析失败时要把 chip 标红，否则它会永远停在「解析中…」——
+          // 因为失败路径不会再发 attachment_done。
+          if (ev.data.code?.startsWith('ATTACHMENT')) {
+            const block = this._attachmentBlock(userMsg)
+            if (block) block.status = 'failed'
+          }
           break
         }
         default:

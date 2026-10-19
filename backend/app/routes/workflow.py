@@ -18,6 +18,11 @@ from rag.vector_db import MilvusClient
 from rag.retriever import Retriever
 from db.conversation_repo import get_conversation_repo
 from app.utils.context import start_invocation
+from app.utils.attachment import (
+    AttachmentError,
+    build_attachment,
+    pin_attachment_paths,
+)
 from tools.instrumented_client import InstrumentedMCPClient
 
 router = APIRouter()
@@ -202,7 +207,19 @@ def format_history(messages: list[dict]) -> str:
 async def stream_workflow(req: WorkflowRequest, request: Request):
     user_id = _inject_user(request)
     task_id = req.workflow_id or str(uuid.uuid4())[:8]
-    user_query = req.input_data.get("user_query", "")
+    user_query = (req.input_data.get("user_query") or "").strip()
+
+    # 本轮上传的分子结构（前端 StructureInput 的三个标签页都会产出它）。
+    # ⚠️ 它只用于「解析 → 落盘 → 把路径写进 Planner 上下文」，**绝不**经
+    #    executor 的 input_data 传给工具：那条路是无 schema 过滤的字典展开
+    #    （executor.py 的 {**input_data, **step["params"]}），任何工具不认识
+    #    这个键就 TypeError 直接失败；而且 execute_stream 根本收不到 input_data。
+    structure_payload = req.input_data.get("structure") or None
+    if not user_query and structure_payload:
+        # 裸附件（只挂文件、没打字）：给 Planner 一个能用的 {task}。
+        # 放后端合成而不是前端补字，是因为 persist()/AgentState/start_invocation/
+        # memory 检索全都复用它，这样只需要一处取值。
+        user_query = "分析我上传的分子结构"
 
     # ⚠️ 在**端点体**取会话：客户端传来的 id 可能不存在、甚至属于别人，
     #    get_or_create 会换一个新 id 回来（见 conversation_repo）。之后
@@ -251,6 +268,29 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
             yield sse({"event": "conversation_ready",
                        "data": {"conversation_id": conversation_id}})
 
+            # ---- phase -1: 本轮附件（用户上传的分子结构）----
+            # 放在 memory/RAG 之前：附件解析失败要**快**，别先白烧一次 embedding。
+            # 解析失败是**硬失败**不降级 —— 结构不对时没有任何工具调用能成功，
+            # 直接说清楚比让 Planner 猜、再报一句莫名其妙的工具错误要好。
+            attachment = None
+            if structure_payload:
+                try:
+                    attachment = build_attachment(structure_payload)
+                except AttachmentError as e:
+                    outcome = "attachment_error"
+                    logger.bind(task_id=task_id, component="attachment").warning(
+                        "[attachment] 解析失败 | code={} | {}", e.code, e)
+                    # ⚠️ persist 必须在 yield done/error **之前**（B7）
+                    persist(f"附件解析失败：{e}", "error")
+                    yield sse({"event": "error", "data": {
+                        "message": f"附件解析失败：{e}",
+                        "code": e.code,
+                        "conversation_id": conversation_id,
+                    }})
+                    return
+                yield sse({"event": "attachment_done",
+                           "data": attachment.to_event_data()})
+
             # ---- 为本请求创建专属 MemoryTool（user_id 隔离，避免 thread-local 异步污染）----
             mem_tool = _get_memory_tool_for_user(str(user_id))
             mem_tool.set_session(conversation_id)
@@ -290,9 +330,12 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
                 logger.bind(task_id=task_id).warning("[rag] 检索失败，降级为空上下文: {}", e)
                 yield sse({"event": "rag_done", "data": {"context_len": len(rag_context), "warning": str(e)}})
 
-            # ---- 拼接完整上下文：记忆 + 对话历史 + 参考资料 ----
+            # ---- 拼接完整上下文：附件 + 记忆 + 对话历史 + 参考资料 ----
+            # 附件放最前：最具体、最时效 —— Planner 越早看到路径越不容易自己编。
             history_text = format_history(messages)
             parts = []
+            if attachment is not None:
+                parts.append(attachment.to_context_block())
             if memory_context:
                 parts.append(f"## 历史记忆\n{memory_context}")
             if history_text:
@@ -304,6 +347,16 @@ async def stream_workflow(req: WorkflowRequest, request: Request):
             # ---- phase 1: planning ----
             for event in planner.plan_stream(state, context=full_context):
                 yield sse(event)
+
+            # 路径钉扎（兜底）：LLM 可能把分隔符写成反斜杠、或把中文目录名敲错，
+            # 甚至把路径塞进 xyz 参数。按 basename 匹配改写回真实落盘路径。
+            # ⚠️ 这里改的是**执行用**的 plan；plan_done 事件已在上面的循环里发过，
+            #    所以 PlanCard 展示的是 LLM 原始输出 —— 纯外观差异，可接受。
+            if attachment is not None:
+                fixed = pin_attachment_paths(state.plan, attachment)
+                if fixed:
+                    logger.bind(task_id=task_id, component="attachment").info(
+                        "[attachment] 已校正 {} 处路径 → {}", fixed, attachment.path)
 
             # 空计划（闲聊、纯知识问答）：跳过执行+评审，直接结束
             if not state.plan:

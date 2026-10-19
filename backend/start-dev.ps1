@@ -7,7 +7,7 @@
     本地完整开发需要两个服务，本脚本把它们的启动、前置检查和健康检查都收敛成一条命令。
     两个服务各自开一个窗口，日志互不干扰；关窗口即停对应服务。
 
-    ┌─ 浏览器 → Go 网关(:8080) → FastAPI(:8001)
+    ┌─ 浏览器 → Go 网关(:9000) → FastAPI(:8001)
     │              └─ 校验 JWT、注入 X-User-ID
     └─ MySQL(:3306) 只给网关用，FastAPI 不连它
 
@@ -15,7 +15,7 @@
     FastAPI 端口，默认 8001（与 vite 代理一致）。
 
 .PARAMETER GatewayPort
-    Go 网关端口，默认 8080。
+    Go 网关端口，默认 9000。会以 GATEWAY_PORT 透传给网关进程。
 
 .PARAMETER SkipAuth
     跳过 JWT 校验，网关会注入固定用户 local_dev(id=1)。
@@ -27,7 +27,7 @@
 
 .EXAMPLE
     .\start-dev.ps1
-    启动 FastAPI:8001 + 网关:8080（默认开启真实认证）
+    启动 FastAPI:8001 + 网关:9000（默认开启真实认证）
 
 .EXAMPLE
     .\start-dev.ps1 -SkipAuth
@@ -36,7 +36,7 @@
 [CmdletBinding()]
 param(
     [int]$BackendPort = 8001,
-    [int]$GatewayPort = 8080,
+    [int]$GatewayPort = 9000,
     [switch]$SkipAuth,
     [string]$JwtSecret = 'local-dev-secret'
 )
@@ -163,7 +163,11 @@ if (-not $startApi -and -not $startGw) {
     if ($startGw) {
         # Go 网关 —— BACKEND_URL 不设会默认指向 8000，必须显式传
         $skipVal = if ($SkipAuth) { 'true' } else { 'false' }
+        # ⚠️ GATEWAY_PORT 必须显式传：网关的默认值是 9000，与本脚本的
+        #    -GatewayPort 默认一致；但用户改了 -GatewayPort 时只有透传过去，
+        #    健康检查等的那一个端口才是网关真正监听的端口。
         $gwCmd = "`$Host.UI.RawUI.WindowTitle = 'QAP Gateway :$GatewayPort'; " +
+                 "`$env:GATEWAY_PORT = '$GatewayPort'; " +
                  "`$env:BACKEND_URL = 'http://127.0.0.1:$BackendPort'; " +
                  "`$env:SKIP_AUTH = '$skipVal'; " +
                  "`$env:JWT_SECRET = '$JwtSecret'; " +
@@ -198,7 +202,7 @@ Write-Host "   认证模式     $(if ($SkipAuth) { 'SKIP_AUTH=true（固定用�
 Write-Host ''
 Write-Host '   停止服务：    关闭本脚本新开的那两个窗口即可' -ForegroundColor DarkGray
 Write-Host ''
-Write-Host '   链路：浏览器 → vite(5173) → 网关(8080) → FastAPI(8001)' -ForegroundColor DarkGray
+Write-Host "   链路：浏览器 → vite(5173) → 网关($GatewayPort) → FastAPI($BackendPort)" -ForegroundColor DarkGray
 Write-Host '         认证接口由网关直接处理；其余 /api 由网关校验 JWT 并注入 X-User-ID 后转发' -ForegroundColor DarkGray
 Write-Host ''
 Write-Host '   下一步：前端另开一个终端跑  cd frontend; npm run dev' -ForegroundColor Cyan

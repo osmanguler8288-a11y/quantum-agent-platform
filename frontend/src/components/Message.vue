@@ -3,8 +3,23 @@
     <div class="avatar">{{ message.role === 'user' ? 'U' : 'A' }}</div>
     <div class="bubble">
       <template v-if="message.role === 'user'">
+        <!-- ⚠️ 用户分支是逐块 v-if，不处理就会**静默消失** —— 只挂附件、
+             没打字时 blocks 里只有 attachment 块，漏了这一支用户气泡会是空的。 -->
         <template v-for="(block, i) in message.blocks" :key="i">
           <span v-if="block.type === 'text'" class="user-text">{{ block.text }}</span>
+          <div
+            v-else-if="block.type === 'attachment'"
+            class="user-attachment"
+            :class="block.status"
+            :title="block.path || block.filename"
+          >
+            <span class="ua-icon">⌬</span>
+            <span class="ua-name">{{ block.filename }}</span>
+            <span v-if="block.status === 'pending'" class="ua-meta">解析中…</span>
+            <span v-else-if="block.status === 'failed'" class="ua-meta ua-fail">解析失败</span>
+            <span v-else class="ua-meta">{{ block.natoms }} 原子 · {{ block.formula }}</span>
+            <span v-if="block.path" class="ua-path">{{ block.path }}</span>
+          </div>
         </template>
       </template>
 
@@ -104,6 +119,58 @@ defineProps<{ message: ChatMessage; isRunning?: boolean }>()
 
 .user-text {
   white-space: pre-wrap;
+}
+
+/* ── 用户消息上的分子结构附件 ──
+   气泡底色是 #f5f5f4，chip 用白底才跳得出来（与 kb/UploadDocsModal 的 .file-item 同型） */
+.user-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--orange);
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+.user-attachment.failed {
+  border-left-color: var(--red-text);
+}
+.ua-icon {
+  color: var(--orange);
+  flex-shrink: 0;
+}
+.user-attachment.failed .ua-icon {
+  color: var(--red-text);
+}
+.ua-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ua-meta {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.ua-fail {
+  color: var(--red-text);
+}
+.ua-path {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+  margin-left: 2px;
 }
 
 /* 历史回填的助手回复（纯文本块）——与流式时的 ThinkingBlock 区分开，

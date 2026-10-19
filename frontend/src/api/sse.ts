@@ -1,4 +1,4 @@
-import type { SSEEvent } from '@/types'
+import type { SSEEvent, StructurePayload } from '@/types'
 import { authHeaders } from './client'
 
 /**
@@ -10,7 +10,7 @@ import { authHeaders } from './client'
  *    后端识别不出用户，对话链路与工具调用埋点都会记成 default_user。
  */
 export async function streamWorkflow(
-  body: { input_data: { user_query: string; structure?: unknown }; session_id: string | null },
+  body: { input_data: { user_query: string; structure?: StructurePayload }; session_id: string | null },
   onEvent: (event: SSEEvent) => void,
 ): Promise<void> {
   const resp = await fetch('/api/workflow/stream', {

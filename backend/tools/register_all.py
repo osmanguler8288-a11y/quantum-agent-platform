@@ -27,7 +27,7 @@ from tools.file_tools.runner import read_file, write_file, list_dir, delete_file
 from tools.python_repl.runner import run_python
 from tools.grep_tool.runner import grep_file
 from tools.gaussian.runner import run_gaussian
-from tools.eqv2.runner import run_eqv2
+from tools.eqv2.runner import run_eqv2_predict, run_eqv2_relax
 from tools.multiwfn.runner import run_multiwfn
 from tools.humo_lumo.runner import run_homo_lumo
 from tools.dip.runner import run_dipole
@@ -194,17 +194,55 @@ def builtin_tool_specs() -> list[dict]:
             "func": run_gaussian,
         },
         {
-            "name": "eqv2",
-            "description": "运行 EqV2 构象搜索。参数: input_file(必填), output_file(必填)",
+            "name": "eqv2_predict",
+            "description": (
+                "用 EqV2 31M 机器学习势算单点能量与每个原子的受力（约 0.2 秒，同步返回），"
+                "并给出面向首个原子的键长/键角。"
+                "参数: xyz(可选,XYZ结构文本) 或 input_file(可选,结构文件路径,.xyz/.gjf/.com) —— 两者必须二选一。"
+                "用于：查某个结构的能量、受力大小、键长键角；在提交优化前先确认结构是否合理。"
+                "能量单位 eV，受力单位 eV/Å。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "input_file": {"type": "string", "description": "输入文件路径"},
-                    "output_file": {"type": "string", "description": "输出文件路径"},
+                    "xyz": {"type": "string",
+                            "description": "XYZ 结构文本：首行原子数，第二行注释，随后每行 '元素 x y z'"},
+                    "input_file": {"type": "string",
+                                   "description": "结构文件路径，支持 .xyz 与 Gaussian 输入文件 .gjf/.com"},
                 },
-                "required": ["input_file", "output_file"],
+                "required": [],
             },
-            "func": run_eqv2,
+            "func": run_eqv2_predict,
+        },
+        {
+            "name": "eqv2_relax",
+            "description": (
+                "用 EqV2 31M 机器学习势做几何优化（BFGS 结构弛豫），异步作业，耗时随原子数与步数增长"
+                "（水分子 200 步约 27 秒）。返回能量变化、最终受力与是否收敛。"
+                "参数: xyz(可选) 或 input_file(可选) —— 两者必须二选一；"
+                "fmax(可选,收敛力阈值 eV/Å,(0,5],默认0.05), max_steps(可选,最大步数,1~200,默认200)。"
+                "用于：找局部稳定构型、优化初始结构。"
+                "⚠️ 只有结果里的 converged=true 才算优化收敛；用满 max_steps 仍未达标时返回的是中间构型。"
+                "⚠️ 实测该部署的受力下限约 0.2~0.3 eV/Å（水分子 1 步即到 0.213 便再难下降）；"
+                "传 fmax=0.05 这类过严阈值不会收敛，只会耗满步数并可能让结构变差，"
+                "需要「收敛」结论时请传 fmax=0.3 左右。"
+                "服务端单任务执行，不要并发提交。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "xyz": {"type": "string",
+                            "description": "XYZ 结构文本：首行原子数，第二行注释，随后每行 '元素 x y z'"},
+                    "input_file": {"type": "string",
+                                   "description": "结构文件路径，支持 .xyz 与 Gaussian 输入文件 .gjf/.com"},
+                    "fmax": {"type": "number",
+                             "description": "收敛力阈值，单位 eV/Å，须在 (0, 5.0]，默认 0.05"},
+                    "max_steps": {"type": "integer",
+                                  "description": "最大优化步数，1~200，默认 200"},
+                },
+                "required": [],
+            },
+            "func": run_eqv2_relax,
         },
         {
             "name": "multiwfn",

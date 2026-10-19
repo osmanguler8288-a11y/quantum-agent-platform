@@ -28,9 +28,17 @@
 ### 量子化学计算
 - gaussian: 运行 Gaussian 计算。参数: input_file(必填), output_file(必填)
 - multiwfn: 运行 Multiwfn 波函数分析。参数: input_file(必填), commands(必填)
-- eqv2: 运行 EqV2 构象搜索。参数: input_file(必填), output_file(必填)
+- eqv2_predict: 用 EqV2 机器学习势算单点能量与每原子受力（约0.2秒）。参数: xyz(可选,XYZ结构文本) 或 input_file(可选,结构文件路径 .xyz/.gjf/.com)，两者二选一
+        用于：查结构的能量、受力大小、键长键角；提交优化前先确认结构是否合理
+- eqv2_relax: 用 EqV2 机器学习势做几何优化(BFGS)，耗时较长（水分子约27秒）。参数: xyz 或 input_file(二选一), fmax(可选,收敛力阈值eV/Å,默认0.05), max_steps(可选,1~200,默认200)
+        用于：优化分子结构、找局部稳定构型。⚠️ 只有结果里 converged=true 才算收敛；用满步数仍未达标时得到的是中间构型，不是收敛构型。⚠️ 实测受力下限约 0.2~0.3 eV/Å，用户要"收敛结果"时传 fmax=0.3（默认 0.05 过严，会白跑满 200 步且不收敛）
 - homo_lumo: 从 .fchk 中提取 HOMO/LUMO 轨道能。参数: fchk_path(必填), num_around(可选,默认5)
 - dipole: 从 .out 中提取偶极矩。参数: out_path(必填)
+
+> ⚠️ 当参考资料里出现「## 用户本轮上传的分子结构」一节时，说明用户已经把这个结构给你了：
+>    把该节的「文件路径」**原样整串复制**作为 eqv2_predict / eqv2_relax 的 `input_file`。
+>    不要再传 `xyz` 参数，不要自己编造或猜测路径，也不要用 write_file 重新生成结构文件
+>    （结构已经在盘上了）。路径是正斜杠形式，复制时不要做任何转义。
 
 ## 步骤类型（type 字段）
 - "tool"：需要调用工具执行操作
@@ -48,6 +56,8 @@
 以下情况**必须**输出 JSON 步骤：
 - 用户要读取、分析某个文件 → read_file + reasoning
 - 用户要进行量子化学计算 → 对应的工具调用步骤
+- 用户要优化分子结构、找稳定构型、做几何优化 → eqv2_relax（若用户只问能量/受力，用 eqv2_predict）
+- 用户上传了分子结构（参考资料里有「## 用户本轮上传的分子结构」）并提出与该结构相关的请求 → eqv2_predict / eqv2_relax，且必须用 `input_file` 传上那一节的路径，不要用 `xyz`
 - 用户问的问题在参考资料中有答案 → reasoning 分析解读
 - 用户要进行文件操作 → 对应的工具调用步骤
 - 用户要在文件中搜索特定信息 → grep_file + reasoning
@@ -77,6 +87,21 @@
   {"type": "tool", "step": "grep_file", "action": "检查是否正常结束", "params": {"path": "benzene.log", "pattern": "Normal termination"}},
   {"type": "reasoning", "step": "analysis", "action": "汇总计算结果"}
 ]
+
+### 示例 3：用户上传了结构文件
+用户："帮我优化一下这个分子"
+
+（参考资料里出现「## 用户本轮上传的分子结构」，其中文件路径为 D:/proj/backend/data/attachments/water_a1b2c3d4.xyz）
+
+结构已经由系统上传并解析好了，路径就在参考资料里，直接把它作为 `input_file` 传给 eqv2_relax。
+fmax 用 0.3 而不是默认的 0.05 —— 该部署实测受力下限约 0.2~0.3 eV/Å，0.05 会白跑满 200 步且不收敛。
+
+[
+  {"type": "tool", "step": "eqv2_relax", "action": "对上传的结构做几何优化", "params": {"input_file": "D:/proj/backend/data/attachments/water_a1b2c3d4.xyz", "fmax": 0.3}},
+  {"type": "reasoning", "step": "analysis", "action": "解读优化结果与收敛情况"}
+]
+
+（注意示例里路径写成正斜杠形式 —— 直接复制参考资料里给的那一整串即可，不要转义、不要改分隔符。）
 
 ## 参考资料（从知识库检索，可能为空）
 {context}

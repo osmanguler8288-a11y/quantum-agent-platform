@@ -1,9 +1,11 @@
-tools:
-  eqv2:
-    binary: eqv2
-    timeout: 300
-    max_retries: 2
+# ⚠️ 本文件当前**全仓库无人读取**（doc/backdesign/工具库后端设计.md 已标注应删除）。
+#    原有 `eqv2: binary: eqv2` 已随 EqV2 转为远程 HTTP 服务而彻底失效 ——
+#    EqV2 的地址/密钥/超时/重试现在全部由环境变量提供，见：
+#      config/settings.py 的 EQV2_* 段
+#      tools/eqv2/client.py 的重试策略
+#    下面 gaussian / multiwfn 两项同理，runner 里是硬编码的裸二进制名。
 
+tools:
   gaussian:
     binary: g16
     timeout: 3600

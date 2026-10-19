@@ -66,6 +66,24 @@ export type VizResult =
   | { type: 'structure'; atoms: Atom[] }
   | { type: 'energy'; label: string; value: number; unit: string }
 
+// ─── 分子结构附件（用户在「⌬ 结构」里输入的）───
+export interface StructurePayload {
+  /** 'xyz' = 直接粘贴坐标；'file' = 上传文件后本地读出文本；'smiles' = 前端已禁用，仅保留兼容 */
+  format: 'xyz' | 'file' | 'smiles'
+  data: string
+  filename?: string
+}
+
+/** 后端 attachment_done 事件回传的元数据 */
+export interface AttachmentMeta {
+  filename: string
+  format: string
+  natoms?: number
+  formula?: string
+  /** 相对 backend 工作目录的路径，便于用户后续引用 */
+  path?: string
+}
+
 // ─── 消息块（一条助手消息由多个块组成）───
 export type MessageBlock =
   | { type: 'text'; text: string }
@@ -77,6 +95,17 @@ export type MessageBlock =
   | { type: 'viz'; viz: VizResult }
   | { type: 'error'; message: string }
   | { type: 'done'; status: string }
+  // 用户消息上的附件标记。挂在**用户**消息上，不是助手消息 ——
+  // 渲染分支见 Message.vue 的 user 分支（那里只认 text，不处理会静默消失）。
+  | {
+      type: 'attachment'
+      filename: string
+      format: string
+      status: 'pending' | 'ok' | 'failed'
+      natoms?: number
+      formula?: string
+      path?: string
+    }
 
 // ─── 消息 ───
 export interface ChatMessage {
@@ -95,6 +124,8 @@ export type SSEEvent =
   | { event: 'retry'; data: { retry_count: number } }
   | { event: 'memory_done'; data: { count: number } }
   | { event: 'rag_done'; data: { context_len: number } }
+  // 附件已解析、校验并落盘。之后执行用的 input_file 就是它的 path。
+  | { event: 'attachment_done'; data: AttachmentMeta }
   | { event: 'result_viz'; data: VizResult }
   // 会话已就绪（planning 之前发出）。conversation_id 可能与请求里带的不一样 ——
   // 客户端传了一个不存在、或属于别人的 id 时，后端会换一个新的（见方案 §3.1 B4）
@@ -109,7 +140,8 @@ export type SSEEvent =
         message_count?: number
       }
     }
-  | { event: 'error'; data: { message: string; conversation_id?: string } }
+  // code 目前只有附件失败会带（ATTACHMENT_*），其余错误路径不填
+  | { event: 'error'; data: { message: string; code?: string; conversation_id?: string } }
 
 // ─── 记忆 ───
 export type MemoryType = 'working' | 'episodic' | 'semantic' | 'perceptual'

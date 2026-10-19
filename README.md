@@ -15,8 +15,9 @@ git clone <repo-url> && cd quantum-agent-platform
 cd backend
 cp .env.example .env          # 填入 LLM_API_KEY 和 EMBED_API_KEY
 docker compose up -d          # 启动 mysql / redis / app / auth / milvus 等全部服务
-# 浏览器打开 http://localhost:8080 → 注册 → 登录 → 使用
-# 注意：必须访问 :8080（Go 网关），:8000 是内部 FastAPI，无认证路由
+# 浏览器打开 http://localhost:8000 → 注册 → 登录 → 使用
+# 注意：Docker 下 :8000 对外发布的是 Go 网关（容器内监听 9000）；
+#      容器里的 :8000 才是 FastAPI，它无认证路由，不要直接对外暴露
 ```
 
 **前置条件**：Docker & Docker Compose、一个 LLM API Key（OpenAI 兼容接口）。
@@ -44,7 +45,7 @@ npm run dev                   # Vite 开发服务器，默认 http://localhost:5
 ## 架构
 
 ```
-浏览器 ──→ Vue 3 前端 (:8000 静态 / :5173 dev) ──→ Go 认证网关 (:8080) ──→ FastAPI (:8001)
+浏览器 ──→ Vue 3 前端 (:8000 静态 / :5173 dev) ──→ Go 认证网关 (:9000) ──→ FastAPI (:8001)
                      /api/auth/*  公开                          /api/*  需 JWT
                      JWT 注入 X-User-ID                              │
                                                                     ↓

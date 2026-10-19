@@ -39,6 +39,7 @@ import Header from '@/components/Header.vue'
 import Message from '@/components/Message.vue'
 import InputBar from '@/components/InputBar.vue'
 import MemoryPanel from '@/components/MemoryPanel.vue'
+import type { StructurePayload } from '@/types'
 
 const router = useRouter()
 const chat = useChatStore()
@@ -51,7 +52,7 @@ const showMemory = ref(false)
 
 const lastMessageId = computed(() => chat.messages[chat.messages.length - 1]?.id)
 
-async function onSubmit(query: string, structure?: { format: string; data: string; filename?: string }) {
+async function onSubmit(query: string, structure?: StructurePayload) {
   await chat.submit(query, structure)
 }
 

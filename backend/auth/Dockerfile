@@ -9,5 +9,5 @@ RUN CGO_ENABLED=0 go build -o auth-server .
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/auth-server /auth-server
-EXPOSE 8080
+EXPOSE 9000
 CMD ["/auth-server"]

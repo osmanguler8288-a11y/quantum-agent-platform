@@ -50,7 +50,7 @@ services:
     container_name: qap-auth
     build: ./auth
     ports:
-      - "8000:8080"
+      - "8000:9000"
     environment:
       MYSQL_DSN: root:quantum123@tcp(mysql:3306)/quantum_auth?parseTime=true
       JWT_SECRET: change-me-in-production-use-a-long-random-string

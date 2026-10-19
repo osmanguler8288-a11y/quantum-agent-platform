@@ -5,7 +5,7 @@ import vue from '@vitejs/plugin-vue'
 /**
  * 开发期代理：**所有 /api 一律走 Go 认证网关**。
  *
- *     浏览器 ──/api/*──→ 网关(:8080) ──校验 JWT 并注入 X-User-ID──→ FastAPI(:8001)
+ *     浏览器 ──/api/*──→ 网关(:9000) ──校验 JWT 并注入 X-User-ID──→ FastAPI(:8001)
  *                            └─ /api/auth/* 由网关自己处理
  *
  * ⚠️ 为什么不能只把 /api/auth 分流给网关、其余直接给 FastAPI：
@@ -20,12 +20,12 @@ import vue from '@vitejs/plugin-vue'
  *
  * 本地一键启动网关 + FastAPI：backend/start-dev.ps1
  * 指向远程网关（本地不跑后端）：在 frontend/.env 里设
- *    VITE_GATEWAY_URL=http://<服务器>:8080
+ *    VITE_GATEWAY_URL=http://<服务器>:9000
  * 改完本文件需要**重启 vite**（配置不参与热更新）。
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const gateway = env.VITE_GATEWAY_URL || 'http://127.0.0.1:8080'
+  const gateway = env.VITE_GATEWAY_URL || 'http://127.0.0.1:9000'
 
   return {
     plugins: [vue()],

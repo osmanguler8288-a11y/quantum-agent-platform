@@ -29,6 +29,43 @@ class Settings:
     MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
     MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
 
+    # ---------- EqV2 31M 机器学习势函数服务 ----------
+    # 远程推理服务（HTTP + Bearer Key），提供单点能/受力预测与异步几何优化。
+    # ⚠️ 服务器只有 2 vCPU / 3.5 GB 且固定单 worker、单任务锁，并且 Nginx 做每 IP
+    #    限流 —— 突发请求会被打成 503。客户端因此强制串行 + 退避重试，见
+    #    tools/eqv2/client.py。切勿在这里调小重试次数来"提速"。
+    EQV2_API_BASE_URL = os.getenv("EQV2_API_BASE_URL", "http://139.196.11.38:8888")
+    EQV2_API_KEY = os.getenv("EQV2_API_KEY", "")
+    # 单次 HTTP 请求超时。predict 实测约 0.2s，但服务忙时排队会久。
+    EQV2_TIMEOUT = float(os.getenv("EQV2_TIMEOUT", "180.0"))
+    # 优化作业的总预算（提交 + 轮询到终态）。实测水分子 200 步约 27s，
+    # 但大分子/多步会显著更久，这里给足。
+    EQV2_RELAX_TIMEOUT = float(os.getenv("EQV2_RELAX_TIMEOUT", "1800.0"))
+    # 轮询间隔。文档建议 5~10s —— 比这更快只会撞上 Nginx 限流。
+    EQV2_POLL_INTERVAL = float(os.getenv("EQV2_POLL_INTERVAL", "8.0"))
+    # 409(模型忙)/429(队列满)/5xx 的最大重试次数
+    EQV2_MAX_RETRIES = int(os.getenv("EQV2_MAX_RETRIES", "4"))
+    # 服务端原子数上限。本地预检用，避免拿 422 当流程控制。
+    EQV2_MAX_ATOMS = int(os.getenv("EQV2_MAX_ATOMS", "200"))
+    # 优化产物目录（扩展 XYZ / 轨迹 CSV / 原始 JSON）
+    EQV2_DATA_DIR = os.getenv(
+        "EQV2_DATA_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "eqv2"),
+    )
+
+    # ---------- 用户上传的分子结构附件 ----------
+    # 用户在对话里上传的结构文件，解析成规范 XYZ 后落在这里，再把路径交给 Planner。
+    # 与 EQV2_DATA_DIR 同理用 __file__ 推导绝对路径（仓库路径含中文，相对路径在
+    # 部分 Windows code page 下会失败）。
+    ATTACHMENT_DATA_DIR = os.getenv(
+        "ATTACHMENT_DATA_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "data", "attachments"),
+    )
+    # 附件文本上限（字节）。200 原子的 XYZ 约 8KB，1MB 给足余量，
+    # 同时挡住误传的二进制/大文件。
+    ATTACHMENT_MAX_BYTES = int(os.getenv("ATTACHMENT_MAX_BYTES", str(1024 * 1024)))
+
     # RAG
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "512"))
     CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
